@@ -46,8 +46,6 @@ bool processDataQueue() {
             imuAccumulator.accel.v[i] = imuAccumulator.accel.v[i] * GRAVITY_EARTH / imuCount;
         }
         kalmanCore.Predict(&imuAccumulator, dt / 1000000.0f, false);
-        
-        printf("dt: %d\n", (int)dt);
 
         imuCount = 0;
         imuAccumulator = imu_t();
@@ -77,12 +75,12 @@ void estimatorKalmanTask(void *argument) {\
         TASK_TIMER_WAIT(ESTIMATOR);
 
         update = processDataQueue();
-
-        int64_t currentTime = esp_timer_get_time();
-        kalmanCore.AddProcessNoise((currentTime - lastTime) / 1e6f);
-        lastTime = currentTime;
         
         if (update) {
+            int64_t currentTime = esp_timer_get_time();
+            kalmanCore.AddProcessNoise((currentTime - lastTime) / 1e6f);
+            lastTime = currentTime;
+            
             kalmanCore.Finalize();
             if (!kalmanCore.CheckBounds()) {
                 float *S = kalmanCore.GetState();

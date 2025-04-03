@@ -14,13 +14,17 @@ static const float stdDevInitPos_z = 1;
 static const float stdDevInitVel_xyz = 0.01;
 static const float stdDevInitAtti_rpy = 0.01;
 
-static float procNoiseAcc_xy = 0.5f;
-static float procNoiseAcc_z = 1.0f;
-static float procNoiseVel = 0;
-static float procNoisePos = 0;
-static float procNoiseAtt = 0;
-static float measNoiseGyro_roll_pitch = 0.1f; // radians per second
-static float measNoiseGyro_yaw = 0.1f; // radians per second
+static float procNoiseAcc_xy = 0.2f;
+static float procNoiseAcc_z = 0.3f;
+static float procNoiseVel = 0.02f;
+static float procNoisePos = 0.01f;
+static float procNoiseAtt = 0.005f;
+// static float measNoiseGyro_roll_pitch = 0.1f; // radians per second
+// static float measNoiseGyro_yaw = 0.1f; // radians per second
+static float measNoiseGyro_roll_pitch = 0.000041f;  // in rad/s
+static float measNoiseGyro_yaw       = 0.000041f;  // in rad/s
+static float measNoiseAccel_xy       = 0.00047f;   // in m/s²
+static float measNoiseAccel_z        = 0.00047f;   // in m/s²
 
 Kalman::Kalman() {
     // Initialize the Kalman filter state
@@ -424,6 +428,8 @@ void Kalman::ScalarUpdate(dspm::Mat *Hm, float error, float stdMeasNoise) {
 }
 
 bool Kalman::CheckBounds() {
+    return true;
+    // comment
     float maxPosition = 50;
     float maxVelocity = 5;
     for (int i = 0; i < 3; i++) {

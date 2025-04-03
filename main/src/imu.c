@@ -114,25 +114,91 @@ void sensorsDelayUs(uint32_t period, void *intf_ptr) {
     vTaskDelay((period + 999) / 1000);
 }
 
+static vec3f_t gyroBias;
+static vec3f_t accelBias;
+static float accelScale;
+bool imuCalibration() {
+    const int caliNbr = 256;
+    gyroBias = (vec3f_t){ 0 };
+    accelBias = (vec3f_t){ 0 };
+    vec3f_t gyroBiasSquared = (vec3f_t){ 0 };
+    accelScale = 0;
+    
+    for (int i = 0; i < caliNbr; i++) {
+        bmi2_get_sensor_data(&bmi270Data[ACCEL], 1, &bmi2Dev);
+		bmi2_get_sensor_data(&bmi270Data[GYRO], 1, &bmi2Dev);
+
+        float ax = bmi270Data[ACCEL].sens_data.acc.x;
+        float ay = bmi270Data[ACCEL].sens_data.acc.y;
+        float az = bmi270Data[ACCEL].sens_data.acc.z;
+        accelBias.x += ax;
+        accelBias.y += ay;
+        accelBias.z += az;
+
+        float gx = bmi270Data[GYRO].sens_data.gyr.x;
+        float gy = bmi270Data[GYRO].sens_data.gyr.y;
+        float gz = bmi270Data[GYRO].sens_data.gyr.z;
+
+        gyroBias.x += gx;
+        gyroBias.y += gy;
+        gyroBias.z += gz;
+        gyroBiasSquared.x += gx * gx;
+        gyroBiasSquared.y += gy * gy;
+        gyroBiasSquared.z += gz * gz;
+        vTaskDelay(1);
+    }
+
+    accelBias.x /= caliNbr;
+    accelBias.y /= caliNbr;
+    accelBias.z /= caliNbr;
+    accelScale = sqrtf(accelBias.x * accelBias.x + 
+                        accelBias.y * accelBias.y + 
+                        accelBias.z * accelBias.z);
+    accelBias.z -= accelScale;
+
+    gyroBias.x /= caliNbr;
+    gyroBias.y /= caliNbr;
+    gyroBias.z /= caliNbr;
+    gyroBiasSquared.x = gyroBiasSquared.x / caliNbr - gyroBias.x * gyroBias.x;
+    gyroBiasSquared.y = gyroBiasSquared.y / caliNbr - gyroBias.y * gyroBias.y;
+    gyroBiasSquared.z = gyroBiasSquared.z / caliNbr - gyroBias.z * gyroBias.z;
+    const float gyroBiasLimit = 1000;
+    if (gyroBiasSquared.x < gyroBiasLimit
+     && gyroBiasSquared.y < gyroBiasLimit
+     && gyroBiasSquared.z < gyroBiasLimit) {
+        printf("IMU Calibration [OK]");
+        return true;
+    } else {
+        printf("IMU Calibration [FAILED]");
+        return false;
+    }
+}
+
 void imuTask(void *argument) {
     estimatorPacket_t packet;
     packet.type = ESTIMATOR_TYPE_IMU;
     imu_t imuBuffer = { 0 };
     // systemWaitStart();
-    // while (!imuCalibration());
+    while (!imuCalibration());
     TASK_TIMER_DEF(IMU, IMU_TASK_RATE);
     
+    int count = 0;
     while (1) {
         TASK_TIMER_WAIT(IMU);
         bmi2_get_sensor_data(&bmi270Data[ACCEL], 1, &bmi2Dev);
 		bmi2_get_sensor_data(&bmi270Data[GYRO], 1, &bmi2Dev);
         
-        imuBuffer.accel.x = (float) bmi270Data[ACCEL].sens_data.acc.x * accelValue2Gravity;
-        imuBuffer.accel.y = (float) bmi270Data[ACCEL].sens_data.acc.y * accelValue2Gravity;
-        imuBuffer.accel.z = (float) bmi270Data[ACCEL].sens_data.acc.z * accelValue2Gravity;
-        imuBuffer.gyro.x = (float) bmi270Data[GYRO].sens_data.gyr.x * gyroValue2Degree;
-        imuBuffer.gyro.y = (float) bmi270Data[GYRO].sens_data.gyr.y * gyroValue2Degree;
-        imuBuffer.gyro.z = (float) bmi270Data[GYRO].sens_data.gyr.z * gyroValue2Degree;
+        // imuBuffer.accel.x = (bmi270Data[ACCEL].sens_data.acc.x - accelBias.x) * accelValue2Gravity;
+        // imuBuffer.accel.y = (bmi270Data[ACCEL].sens_data.acc.y - accelBias.y) * accelValue2Gravity;
+        // imuBuffer.accel.z = (bmi270Data[ACCEL].sens_data.acc.z - accelBias.z) * accelValue2Gravity;
+
+        imuBuffer.accel.x = (bmi270Data[ACCEL].sens_data.acc.x) / accelScale;
+        imuBuffer.accel.y = (bmi270Data[ACCEL].sens_data.acc.y) / accelScale;
+        imuBuffer.accel.z = (bmi270Data[ACCEL].sens_data.acc.z) / accelScale;
+
+        imuBuffer.gyro.x = (bmi270Data[GYRO].sens_data.gyr.x - gyroBias.x) * gyroValue2Degree;
+        imuBuffer.gyro.y = (bmi270Data[GYRO].sens_data.gyr.y - gyroBias.y) * gyroValue2Degree;
+        imuBuffer.gyro.z = (bmi270Data[GYRO].sens_data.gyr.z - gyroBias.z) * gyroValue2Degree;
 
         applyLpf(lpf2pAccel, &imuBuffer.accel);
         applyLpf(lpf2pGyro, &imuBuffer.gyro);
@@ -144,6 +210,12 @@ void imuTask(void *argument) {
         packet.imu = imuBuffer;
         estimatorKalmanEnqueue(&packet);
         // STATIC_SEMAPHORE_RELEASE(imuDataReady);
+
+        // if (count++ % 250 == 0) {
+        //     printf("IMU: %.3f, %.3f, %.3f | %.3f, %.3f, %.3f\n", 
+        //         imuBuffer.accel.x, imuBuffer.accel.y, imuBuffer.accel.z,
+        //         imuBuffer.gyro.x, imuBuffer.gyro.y, imuBuffer.gyro.z);
+        // }
     }
 }
 
@@ -201,9 +273,9 @@ void imuInit() {
     bmi2Dev.delay_us(10000, NULL);
 
     for (uint8_t i = 0; i < 3; i++) {
-        lpf2pInit(&lpf2pAccel[i], 1000, 40);
-        lpf2pInit(&lpf2pGyro[i], 1000, 80);
+        lpf2pInit(&lpf2pAccel[i], 1000, 20);
+        lpf2pInit(&lpf2pGyro[i], 1000, 50);
     }
 
-    xTaskCreatePinnedToCore(imuTask, "imu_task", 2048, NULL, 5, NULL, 1);
+    xTaskCreatePinnedToCore(imuTask, "imu_task", 4096, NULL, 5, NULL, 1);
 }
