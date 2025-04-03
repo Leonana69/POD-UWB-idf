@@ -1,6 +1,10 @@
 #ifndef __TDOA2_H__
 #define __TDOA2_H__
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "loco.h"
 
 #define TDOA2_RECEIVE_TIMEOUT 10000
@@ -50,4 +54,7 @@ typedef struct {
 
 extern uwbAlgorithm_t uwbTdoa2TagAlgorithm;
 
+#ifdef __cplusplus
+}
+#endif
 #endif

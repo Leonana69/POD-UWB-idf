@@ -11,12 +11,15 @@
 #include "wifi_link.h"
 #include "imu.h"
 #include "loco.h"
+#include "estimator.h"
+extern "C" void app_main();
 
-void app_main(void) {
+void app_main() {
     printf("System Starting...\n");
     buttonInit();
-    wifiInit(-1);
-    wifiLinkInit();
+    // wifiInit(-1);
+    // wifiLinkInit();
     imuInit();
-    dw1000_init();
+    estimatorInit();
+    // dw1000_init();
 }

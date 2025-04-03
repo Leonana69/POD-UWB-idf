@@ -9,6 +9,7 @@
 #include "filter.h"
 #include "bmi270.h"
 #include "freeRTOS_helper.h"
+#include "estimator.h"
 
 #define IMU_TASK_RATE 1000 // Hz
 STATIC_MUTEX_DEF(imuDataMutex);
@@ -114,12 +115,12 @@ void sensorsDelayUs(uint32_t period, void *intf_ptr) {
 }
 
 void imuTask(void *argument) {
-    // estimatorPacket_t packet = { .type = IMU_TASK_INDEX };
+    estimatorPacket_t packet;
+    packet.type = ESTIMATOR_TYPE_IMU;
     imu_t imuBuffer = { 0 };
     // systemWaitStart();
     // while (!imuCalibration());
     TASK_TIMER_DEF(IMU, IMU_TASK_RATE);
-    int count = 0;
     
     while (1) {
         TASK_TIMER_WAIT(IMU);
@@ -140,15 +141,9 @@ void imuTask(void *argument) {
         imuData = imuBuffer;
         STATIC_MUTEX_UNLOCK(imuDataMutex);
 
-        // packet.imu = imuBuffer;
-        // estimatorKalmanEnqueue(&packet);
+        packet.imu = imuBuffer;
+        estimatorKalmanEnqueue(&packet);
         // STATIC_SEMAPHORE_RELEASE(imuDataReady);
-
-        if (count++ % 200 == 0) {
-            printf("IMU: %.2f %.2f %.2f %.2f %.2f %.2f\n",
-                imuBuffer.accel.x, imuBuffer.accel.y, imuBuffer.accel.z,
-                imuBuffer.gyro.x, imuBuffer.gyro.y, imuBuffer.gyro.z);
-        }
     }
 }
 

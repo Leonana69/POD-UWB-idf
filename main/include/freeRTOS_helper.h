@@ -13,7 +13,7 @@
 // Static Task Timer
 #define TASK_TIMER_DEF(NAME, FREQ) \
     TickType_t NAME##_last_wake = xTaskGetTickCount(); \
-    const TickType_t NAME##_period = configTICK_RATE_HZ / (FREQ)
+    const TickType_t NAME##_period = 1000 / (FREQ)
 
 #define TASK_TIMER_WAIT(NAME) \
     vTaskDelayUntil(&NAME##_last_wake, NAME##_period)

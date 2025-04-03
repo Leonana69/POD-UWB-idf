@@ -156,7 +156,7 @@ void wifiInit(int8_t configIndex) {
     }
 }
 
-void wifiRSSITask() {
+void wifiRSSITask(void *pvParameters) {
     while (true) {
         if (wifiConnected) {
             wifi_ap_record_t ap_info;
@@ -171,5 +171,5 @@ void wifiLinkInit() {
     if (!wifiConnected)
         return;
 
-    xTaskCreatePinnedToCore(wifiRSSITask, "wifi_rssi_task", 4096, NULL, 10, NULL, 1);
+    // xTaskCreatePinnedToCore(wifiRSSITask, "wifi_rssi_task", 4096, NULL, 10, NULL, 1);
 }

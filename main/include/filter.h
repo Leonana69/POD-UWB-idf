@@ -1,6 +1,10 @@
 #ifndef __FILTER_H__
 #define __FILTER_H__
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 #include "math.h"
 
@@ -22,5 +26,9 @@ void lpf2pInit(lpf2pData* lpfData, float sample_freq, float cutoff_freq);
 void lpf2pSetCutoffFreq(lpf2pData* lpfData, float sample_freq, float cutoff_freq);
 float lpf2pApply(lpf2pData* lpfData, float sample);
 float lpf2pReset(lpf2pData* lpfData, float sample);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // __FILTER_H__

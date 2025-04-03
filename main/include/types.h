@@ -1,6 +1,10 @@
 #ifndef __TYPES_H__
 #define __TYPES_H__
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -151,6 +155,22 @@ typedef struct {
     vec3f_t gyro;              // deg/s
 } imu_t;
 
+enum {
+    ESTIMATOR_TYPE_IMU = 0,
+    ESTIMATOR_TYPE_UWB,
+};
+
+typedef struct {
+    uint8_t type;
+    union {
+        tof_t tof;
+        flow_t flow;
+        imu_t imu;
+        baro_t baro;
+        motor_t motor;
+    };
+} estimatorPacket_t;
+
 // Frequencies to bo used with the RATE_DO_EXECUTE_HZ macro. Do NOT use an arbitrary number.
 #define RATE_1000_HZ 1000
 #define RATE_500_HZ 500
@@ -171,5 +191,9 @@ typedef struct {
 #define POSITION_UPDATE_DT 	    DT_100_HZ
 
 #define RATE_DO_EXECUTE(RATE_HZ, TICK) ((TICK % (RATE_MAIN_LOOP / RATE_HZ)) == 0)
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

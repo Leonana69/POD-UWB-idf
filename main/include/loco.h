@@ -1,6 +1,10 @@
 #ifndef __LOCO_H__
 #define __LOCO_H__
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "driver/spi_master.h"
 #define SPI_HOST    SPI2_HOST  // Use SPI2 or SPI3, SPI1 is typically for flash
 #define PIN_NUM_MISO GPIO_NUM_8
@@ -89,4 +93,9 @@ typedef struct {
 
 
 void dw1000_init();
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif // __LOCO_H__
