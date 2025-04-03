@@ -1,0 +1,12 @@
+{
+    "idf.pythonInstallPath": "/usr/bin/python3",
+    "idf.espIdfPath": "/Users/guojun/esp/esp-idf",
+    "idf.openOcdConfigs": [
+        "board/esp32s3-builtin.cfg"
+    ],
+    "idf.port": "/dev/tty.debug-console",
+    "idf.toolsPath": "/Users/guojun/.espressif",
+    "files.associations": {
+        "gpio.h": "c"
+    }
+}
