@@ -35,7 +35,7 @@ static void applyLpf(lpf2pData *lpfData, vec3f_t *data) {
 static spi_device_handle_t imu_spi_handle;
 
 /// @brief SPI and GPIO setup ///
-void init_spi() {
+static void init_spi() {
     spi_bus_config_t buscfg = {};
     buscfg.flags = SPICOMMON_BUSFLAG_MASTER;
     buscfg.miso_io_num = IMU_SPI_MISO_PIN;

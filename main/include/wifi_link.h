@@ -9,5 +9,6 @@
 #include "sys/socket.h"
 
 void wifiInit(int8_t configIndex);
+void wifiLinkInit();
 
 #endif // __WIFI_LINK_H__

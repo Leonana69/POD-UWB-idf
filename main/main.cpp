@@ -10,10 +10,13 @@
 #include "button.h"
 #include "wifi_link.h"
 #include "imu.h"
+#include "loco.h"
 
 void app_main(void) {
     printf("System Starting...\n");
     buttonInit();
-    // wifiInit(-1);
+    wifiInit(-1);
+    wifiLinkInit();
     imuInit();
+    dw1000_init();
 }
