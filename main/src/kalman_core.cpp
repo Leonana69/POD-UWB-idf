@@ -7,6 +7,7 @@
 #define MAX_COVARIANCE (100.0f)
 #define MIN_COVARIANCE (1e-6f)
 #define EPSILON        (1e-6f)
+#define ROLLPITCH_ZERO_REVERSION (0.001f)
 
 // Initial variances, uncertain of position, but know we're stationary and roughly flat
 static const float stdDevInitPos_xy = 100;
@@ -213,7 +214,7 @@ void Kalman::Predict(imu_t* imuData, float dt, bool isFlying) {
     float dtwz = dt * gyro->z;
 
     // compute the quaternion values in [w,x,y,z] order
-    float angle = sqrtf(dtwx * dtwx + dtwy * dtwy + dtwz * dtwz) + EPSILON;
+    float angle = sqrtf(dtwx * dtwx + dtwy * dtwy + dtwz * dtwz);
     float ca = cosf(angle / 2.0f);
     float sa = sinf(angle / 2.0f);
     float dq[4] = {ca , sa * dtwx / angle , sa * dtwy / angle , sa * dtwz / angle};
@@ -228,14 +229,20 @@ void Kalman::Predict(imu_t* imuData, float dt, bool isFlying) {
     /* This reversion would cause yaw estimation diminish to zero */
     // if (!isFlying) {
     //     float keep = 1.0f - ROLLPITCH_ZERO_REVERSION;
-    //     tmpq0 = keep * tmpq0 + ROLLPITCH_ZERO_REVERSION * 1.0;
-    //     tmpq1 = keep * tmpq1 + ROLLPITCH_ZERO_REVERSION * 0;
-    //     tmpq2 = keep * tmpq2 + ROLLPITCH_ZERO_REVERSION * 0;
-    //     tmpq3 = keep * tmpq3 + ROLLPITCH_ZERO_REVERSION * 0;
+    
+    //     // Extract yaw from the current quaternion
+    //     float yaw = atan2f(2.0f * (tmpq0 * tmpq3 + tmpq1 * tmpq2),
+    //                        1.0f - 2.0f * (tmpq2 * tmpq2 + tmpq3 * tmpq3));
+    
+    //     // Reset roll and pitch while preserving yaw
+    //     tmpq0 = keep * tmpq0 + ROLLPITCH_ZERO_REVERSION * cosf(yaw / 2.0f);
+    //     tmpq1 = keep * tmpq1;
+    //     tmpq2 = keep * tmpq2;
+    //     tmpq3 = keep * tmpq3 + ROLLPITCH_ZERO_REVERSION * sinf(yaw / 2.0f);
     // }
 
     // normalize and store the result
-    float norm = sqrtf(tmpq0 * tmpq0 + tmpq1 * tmpq1 + tmpq2 * tmpq2 + tmpq3 * tmpq3) + EPSILON;
+    float norm = sqrtf(tmpq0 * tmpq0 + tmpq1 * tmpq1 + tmpq2 * tmpq2 + tmpq3 * tmpq3);
 
     q[0] = tmpq0 / norm;
     q[1] = tmpq1 / norm;
@@ -288,7 +295,7 @@ void Kalman::Finalize() {
 
     // Move attitude error into attitude if any of the angle errors are large enough
     if ((fabsf(v0) > 1e-4f || fabsf(v1) > 1e-4f || fabsf(v2) > 1e-4f) && (fabsf(v0) < 10 && fabsf(v1) < 10 && fabsf(v2) < 10)) {
-        float angle = sqrtf(v0 * v0 + v1 * v1 + v2 * v2) + EPSILON;
+        float angle = sqrtf(v0 * v0 + v1 * v1 + v2 * v2);
         float ca = cosf(angle / 2.0f);
         float sa = sinf(angle / 2.0f);
         float dq[4] = { ca, sa * v0 / angle, sa * v1 / angle, sa * v2 / angle };
@@ -300,7 +307,7 @@ void Kalman::Finalize() {
         float tmpq3 = dq[3] * q[0] + dq[2] * q[1] - dq[1] * q[2] + dq[0] * q[3];
 
         // normalize and store the result
-        float norm = sqrtf(tmpq0 * tmpq0 + tmpq1 * tmpq1 + tmpq2 * tmpq2 + tmpq3 * tmpq3) + EPSILON;
+        float norm = sqrtf(tmpq0 * tmpq0 + tmpq1 * tmpq1 + tmpq2 * tmpq2 + tmpq3 * tmpq3);
         q[0] = tmpq0 / norm;
         q[1] = tmpq1 / norm;
         q[2] = tmpq2 / norm;

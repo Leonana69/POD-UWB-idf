@@ -35,8 +35,8 @@ bool processDataQueue() {
                 imuCount++;
                 break;
             case ESTIMATOR_TYPE_UWB:
-                kalmanCore.TdoaUpdate(&packet);
-                update = true;
+                // kalmanCore.TdoaUpdate(&packet);
+                // update = true;
                 break;
             default:
                 break;
@@ -80,12 +80,12 @@ void estimatorKalmanTask(void *argument) {\
         TASK_TIMER_WAIT(ESTIMATOR);
 
         update = processDataQueue();
+
+        int64_t currentTime = esp_timer_get_time();
+        kalmanCore.AddProcessNoise((currentTime - lastTime) / 1e6f);
+        lastTime = currentTime;
         
         if (update) {
-            int64_t currentTime = esp_timer_get_time();
-            kalmanCore.AddProcessNoise((currentTime - lastTime) / 1e6f);
-            lastTime = currentTime;
-            
             kalmanCore.Finalize();
             if (!kalmanCore.CheckBounds()) {
                 float *S = kalmanCore.GetState();
