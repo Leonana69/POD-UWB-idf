@@ -155,6 +155,34 @@ typedef struct {
     vec3f_t gyro;              // deg/s
 } imu_t;
 
+/* x,y,z vector */
+typedef struct {
+    uint32_t timestamp; // Timestamp when the data was computed
+    float x;
+    float y;
+    float z;
+} point_t;
+
+typedef struct tdoaMeasurement_s {
+    union {
+        point_t anchorPositions[2];
+        struct {
+            point_t anchorPositionA;
+            point_t anchorPositionB;
+        };
+    };
+    union {
+        uint8_t anchorIds[2];
+        struct {
+            uint8_t anchorIdA;
+            uint8_t anchorIdB;
+        };
+    };
+
+    scalar_t distanceDiff;
+    scalar_t stdDev;
+} tdoaMeasurement_t;
+
 enum {
     ESTIMATOR_TYPE_IMU = 0,
     ESTIMATOR_TYPE_UWB,
@@ -168,6 +196,7 @@ typedef struct {
         imu_t imu;
         baro_t baro;
         motor_t motor;
+        tdoaMeasurement_t tdoa;
     };
 } estimatorPacket_t;
 

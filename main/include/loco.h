@@ -4,7 +4,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
+#include "types.h"
 #include "driver/spi_master.h"
 #define SPI_HOST    SPI2_HOST  // Use SPI2 or SPI3, SPI1 is typically for flash
 #define PIN_NUM_MISO GPIO_NUM_8
@@ -13,16 +13,6 @@ extern "C" {
 #define PIN_NUM_CS   GPIO_NUM_3
 #define PIN_NUM_IRQ  GPIO_NUM_4
 #define PIN_NUM_RST  GPIO_NUM_6
-
-/* x,y,z vector */
-struct vec3_s {
-    uint32_t timestamp; // Timestamp when the data was computed
-    float x;
-    float y;
-    float z;
-};
-
-typedef struct vec3_s point_t;
 
 #include "libdw1000.h"
 #define LOCODECK_NR_OF_TDOA2_ANCHORS 8
@@ -49,12 +39,6 @@ typedef enum {
     lpsMode_TDoA2 = 2,
     lpsMode_TDoA3 = 3,
 } lpsMode_t;
-
-typedef struct {
-    uint8_t dest;
-    uint8_t length;
-    uint8_t data[30];
-} lpsLppShortPacket_t;
 
 typedef struct {
     // The status of anchors. A bit field (bit 0 - anchor 0, bit 1 - anchor 1 and so on)

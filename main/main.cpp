@@ -21,5 +21,5 @@ void app_main() {
     // wifiLinkInit();
     imuInit();
     estimatorInit();
-    // dw1000_init();
+    dw1000_init();
 }

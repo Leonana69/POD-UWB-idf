@@ -4,7 +4,6 @@
 #include "freertos/task.h"
 
 static uint8_t previousAnchor;
-static lpsLppShortPacket_t lppPacket;
 static bool lppPacketToSend = false;
 static int lppPacketSendTryCounter = 0;
 static bool rangingOk = false;
@@ -178,10 +177,19 @@ static bool rxCallback(dwDevice_t *dev) {
                 
                 const double distance = (double) timeDiffOfArrival_in_cl_T * SPEED_OF_LIGHT / (double)LOCODECK_TS_FREQ;
 
-                if (debug_count % 50 == 0 || debug_count % 50 == 1) {
-                    printf("Distance to anchor %d: %.2f\n", youngestAnchorId, distance);
-                    
-                }
+                // if (debug_count % 50 == 0 || debug_count % 50 == 1) {
+                printf("%d -> %d: %.2f\n", anchor, youngestAnchorId, distance);
+                // }
+                // estimatorPacket_t packet;
+                // packet.type = ESTIMATOR_TYPE_UWB;
+                // packet.tdoa.distanceDiff = distance;
+                // packet.tdoa.stdDev = 0.15f;
+
+                // packet.tdoa.anchorIds[0] = anchorCtx.anchorInfo->id;
+                // packet.tdoa.anchorIds[1] = otherAnchorCtx.anchorInfo->id;
+                // packet.tdoa.anchorPositions[0] = anchorCtx.anchorInfo->position;
+                // packet.tdoa.anchorPositions[1] = otherAnchorCtx.anchorInfo->position;
+
                 debug_count++;
             }
 
