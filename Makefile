@@ -11,8 +11,8 @@ flash:
 	else \
 		idf.py -p $$usbport flash; \
 	fi
-	screen /dev/cu.usbmodem*
-	# script -q /dev/null screen /dev/cu.usbmodem* 9600 | ts '[%H:%M:%.S]'
+	# screen /dev/cu.usbmodem*
+	script -q /dev/null screen /dev/cu.usbmodem* 9600 | ts '[%H:%M:%.S]'
 
 open:
 	@screen -r

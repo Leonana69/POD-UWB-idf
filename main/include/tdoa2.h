@@ -7,6 +7,7 @@ extern "C" {
 
 #include "loco.h"
 
+#define TDOA2_REMOTE_HISTORY_COUNT 5
 #define TDOA2_RECEIVE_TIMEOUT 10000
 #define TDOA2_LPP_PACKET_SEND_TIMEOUT (LOCODECK_NR_OF_TDOA2_ANCHORS * 5)
 
@@ -22,6 +23,10 @@ typedef struct {
     uint8_t seqNr; // Sequence number of the packet received in the remote anchor (7 bits)
     int64_t rxTime; // Receive time of packet from anchor id in the remote anchor, in remote DWM clock
     uint32_t endOfLife;
+
+    float history[TDOA2_REMOTE_HISTORY_COUNT]; // History of distances to this anchor
+    float historySum; // Sum of distances in the history
+    uint8_t historyIndex;
 } tdoaRemoteAnchorData_t;
   
 typedef struct {
@@ -45,6 +50,9 @@ typedef struct {
   
     tdoaTimeOfFlight_t remoteTof[LOCODECK_NR_OF_TDOA2_ANCHORS];
     tdoaRemoteAnchorData_t remoteAnchorData[LOCODECK_NR_OF_TDOA2_ANCHORS];
+
+    double clockCorrection; // Clock correction in seconds
+    uint32_t clockCorrectionBucket; // Number of clock correction updates
 } tdoaAnchorInfo_t;
 
 typedef struct {

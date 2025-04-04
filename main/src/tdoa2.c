@@ -1,11 +1,10 @@
 #include "tdoa2.h"
 #include "mac.h"
+#include "math.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "estimator.h"
 
-static double clockCorrection = 1.0;
-static uint8_t clockCorrectionBucket = 0;
 static tdoaAnchorInfo_t anchorInfoArray[LOCODECK_NR_OF_TDOA2_ANCHORS];
 
 static bool getAnchorPosition(const uint8_t anchorId, point_t* position) {
@@ -109,6 +108,7 @@ static void rxCallback(dwDevice_t *dev) {
             }
 
             // TODO: clock correction
+            bool sampleIsReliable = false;
             const int64_t latest_rxAn_by_T_in_cl_T = anchorCtx.anchorInfo->rxTime;
             const int64_t latest_txAn_in_cl_An = anchorCtx.anchorInfo->txTime;
             if (latest_rxAn_by_T_in_cl_T != 0 && latest_txAn_in_cl_An != 0) {
@@ -119,70 +119,82 @@ static void rxCallback(dwDevice_t *dev) {
                     clockCorrectionCandidate = (double)tickCount_in_cl_reference / (double)tickCount_in_cl_x;
                 }
 
-                const double difference = clockCorrectionCandidate - clockCorrection;
+                double currentClockCorrection = anchorCtx.anchorInfo->clockCorrection;
+                const double difference = clockCorrectionCandidate - currentClockCorrection;
                 if (difference < 0.03e-6 && difference > -0.03e-6) {
-                    clockCorrection = clockCorrection * 0.9 + clockCorrectionCandidate * 0.1;
-                    if (clockCorrectionBucket < 4)
-                        clockCorrectionBucket++;
+                    anchorCtx.anchorInfo->clockCorrection = currentClockCorrection * 0.1 + clockCorrectionCandidate * 0.9;
+                    if (anchorCtx.anchorInfo->clockCorrectionBucket < 4)
+                        anchorCtx.anchorInfo->clockCorrectionBucket++;
+                    sampleIsReliable = true;
                 } else {
-                    if (clockCorrectionBucket > 0)
-                        clockCorrectionBucket--;
+                    if (anchorCtx.anchorInfo->clockCorrectionBucket > 0)
+                        anchorCtx.anchorInfo->clockCorrectionBucket--;
                     else if (1 - 20e-6 < clockCorrectionCandidate && clockCorrectionCandidate < 1 + 20e-6) {
-                        clockCorrection = clockCorrectionCandidate;
+                        anchorCtx.anchorInfo->clockCorrection = clockCorrectionCandidate;
                     }
                 }
             }
 
-            // Process the packet, find the youngest anchor
-            tdoaAnchorContext_t otherAnchorCtx = {0};
-            uint8_t candidate[LOCODECK_NR_OF_TDOA2_ANCHORS] = {0};
+            if (sampleIsReliable) {
+                // Process the packet, find the youngest anchor
+                tdoaAnchorContext_t otherAnchorCtx = {0};
+                uint8_t candidate[LOCODECK_NR_OF_TDOA2_ANCHORS] = {0};
 
-            for (uint8_t i = 0; i < LOCODECK_NR_OF_TDOA2_ANCHORS; i++) {
-                if (anchorCtx.anchorInfo->remoteAnchorData[i].endOfLife > now_ms) {
-                    candidate[i] = 1;
-                }
-            }
-            int youngestAnchorId = -1;
-            uint32_t youngestUpdateTime = 0;
-            for (uint8_t i = 0; i < LOCODECK_NR_OF_TDOA2_ANCHORS; i++) {
-                if (candidate[i] && anchorCtx.anchorInfo->remoteTof[i].endOfLife > now_ms && anchorCtx.anchorInfo->remoteTof[i].tof != 0) {
-                    otherAnchorCtx.anchorInfo = &anchorInfoArray[i];
-                    if (otherAnchorCtx.anchorInfo->lastUpdateTime > youngestUpdateTime
-                        && otherAnchorCtx.anchorInfo->seqNr == anchorCtx.anchorInfo->remoteAnchorData[i].seqNr) {
-                        youngestUpdateTime = otherAnchorCtx.anchorInfo->lastUpdateTime;
-                        youngestAnchorId = i;
+                for (uint8_t i = 0; i < LOCODECK_NR_OF_TDOA2_ANCHORS; i++) {
+                    if (anchorCtx.anchorInfo->remoteAnchorData[i].endOfLife > now_ms) {
+                        candidate[i] = 1;
                     }
                 }
-            }
 
-            if (youngestAnchorId != -1) {
-                otherAnchorCtx.anchorInfo = &anchorInfoArray[youngestAnchorId];
-                otherAnchorCtx.currentTime_ms = now_ms;
+                int youngestAnchorId = -1;
+                uint32_t youngestUpdateTime = 0;
+                for (uint8_t i = 0; i < LOCODECK_NR_OF_TDOA2_ANCHORS; i++) {
+                    if (candidate[i] && anchorCtx.anchorInfo->remoteTof[i].endOfLife > now_ms && anchorCtx.anchorInfo->remoteTof[i].tof != 0) {
+                        otherAnchorCtx.anchorInfo = &anchorInfoArray[i];
+                        if (otherAnchorCtx.anchorInfo->lastUpdateTime > youngestUpdateTime
+                            && otherAnchorCtx.anchorInfo->seqNr == anchorCtx.anchorInfo->remoteAnchorData[i].seqNr) {
+                            youngestUpdateTime = otherAnchorCtx.anchorInfo->lastUpdateTime;
+                            youngestAnchorId = i;
+                        }
+                    }
+                }
 
-                // Calculate the time of flight
-                const int64_t tof_Ar_to_An_in_cl_An = anchorCtx.anchorInfo->remoteTof[youngestAnchorId].tof;
-                const int64_t rxAr_by_An_in_cl_An = anchorCtx.anchorInfo->remoteAnchorData[youngestAnchorId].rxTime;
-                const int64_t rxAr_by_T_in_cl_T = otherAnchorCtx.anchorInfo->rxTime;
-                const int64_t delta_txAr_to_txAn_in_cl_An = tof_Ar_to_An_in_cl_An + _trunc(txAn_in_cl_An - rxAr_by_An_in_cl_An);
-                const double timeDiffOfArrival_in_cl_T = (double)_trunc(rxAn_by_T_in_cl_T - rxAr_by_T_in_cl_T) - clockCorrection * (double)delta_txAr_to_txAn_in_cl_An;
-                
-                const double distance = (double) timeDiffOfArrival_in_cl_T * SPEED_OF_LIGHT / (double)LOCODECK_TS_FREQ;
+                if (youngestAnchorId != -1) {
+                    otherAnchorCtx.anchorInfo = &anchorInfoArray[youngestAnchorId];
+                    otherAnchorCtx.currentTime_ms = now_ms;
 
-                // if (debug_count % 50 == 0 || debug_count % 50 == 1) {
-                // printf("%d -> %d: %.2f\n", anchor, youngestAnchorId, distance);
-                // }
-                estimatorPacket_t packet;
-                packet.type = ESTIMATOR_TYPE_UWB;
-                packet.tdoa.distanceDiff = distance;
-                packet.tdoa.stdDev = 0.15f;
+                    // Calculate the time of flight
+                    const int64_t tof_Ar_to_An_in_cl_An = anchorCtx.anchorInfo->remoteTof[youngestAnchorId].tof;
+                    const int64_t rxAr_by_An_in_cl_An = anchorCtx.anchorInfo->remoteAnchorData[youngestAnchorId].rxTime;
+                    const int64_t rxAr_by_T_in_cl_T = otherAnchorCtx.anchorInfo->rxTime;
+                    const int64_t delta_txAr_to_txAn_in_cl_An = tof_Ar_to_An_in_cl_An + _trunc(txAn_in_cl_An - rxAr_by_An_in_cl_An);
+                    const double timeDiffOfArrival_in_cl_T = (double)_trunc(rxAn_by_T_in_cl_T - rxAr_by_T_in_cl_T) - anchorCtx.anchorInfo->clockCorrection * (double)delta_txAr_to_txAn_in_cl_An;
+                    
+                    const float distance = (float)((double) timeDiffOfArrival_in_cl_T * SPEED_OF_LIGHT / (double)LOCODECK_TS_FREQ);
+                    
+                    tdoaRemoteAnchorData_t *ra = &anchorCtx.anchorInfo->remoteAnchorData[youngestAnchorId];
+                    float mean = ra->historySum / TDOA2_REMOTE_HISTORY_COUNT;
+                    ra->historySum += distance - ra->history[ra->historyIndex];
+                    ra->history[ra->historyIndex] = distance;
+                    ra->historyIndex = (ra->historyIndex + 1) % TDOA2_REMOTE_HISTORY_COUNT;
+                    if (fabsf(mean - distance) < 1.0f) {
+                        // if (debug_count % 50 == 0 || debug_count % 50 == 1) {
+                        // printf("%d -> %d: %.2f %f\n", anchor, youngestAnchorId, distance);
+                        // }
+                        estimatorPacket_t packet;
+                        packet.type = ESTIMATOR_TYPE_UWB;
+                        packet.tdoa.distanceDiff = distance;
+                        packet.tdoa.stdDev = 0.15f;
 
-                packet.tdoa.anchorIds[0] = anchorCtx.anchorInfo->id;
-                packet.tdoa.anchorIds[1] = otherAnchorCtx.anchorInfo->id;
-                packet.tdoa.anchorPositions[0] = anchorCtx.anchorInfo->position;
-                packet.tdoa.anchorPositions[1] = otherAnchorCtx.anchorInfo->position;
-                estimatorKalmanEnqueue(&packet);
+                        packet.tdoa.anchorIds[0] = anchorCtx.anchorInfo->id;
+                        packet.tdoa.anchorIds[1] = otherAnchorCtx.anchorInfo->id;
+                        packet.tdoa.anchorPositions[0] = anchorCtx.anchorInfo->position;
+                        packet.tdoa.anchorPositions[1] = otherAnchorCtx.anchorInfo->position;
+                        estimatorKalmanEnqueue(&packet);
+                    }
 
-                debug_count++;
+                    debug_count++;
+                }
             }
 
             // Set the anchor status
