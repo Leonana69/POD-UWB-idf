@@ -95,8 +95,13 @@ public:
     void Finalize();
     void ExternalizeState(state_t *state, const vec3f_t *accel);
     void ScalarUpdate(dspm::Mat *Hm, float error, float stdMeasNoise);
+    void UpdateWithPKE(dspm::Mat *Hm, dspm::Mat *Kwm, dspm::Mat *P_w_m, float error);
+
     bool CheckBounds();
     void capCovariance();
+
+    void RobustTdoaUpdate(estimatorPacket_t *packet);
+    void TdoaUpdate(estimatorPacket_t *packet);
 };
 
 /**

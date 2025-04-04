@@ -6,6 +6,7 @@ extern "C" {
 #endif
 #include "types.h"
 #include "driver/spi_master.h"
+
 #define SPI_HOST    SPI2_HOST  // Use SPI2 or SPI3, SPI1 is typically for flash
 #define PIN_NUM_MISO GPIO_NUM_8
 #define PIN_NUM_MOSI GPIO_NUM_9
@@ -33,48 +34,15 @@ typedef enum uwbEvent_e {
 
 typedef uint64_t locoAddress_t;
 
-typedef enum {
-    lpsMode_auto = 0,
-    lpsMode_TWR = 1,
-    lpsMode_TDoA2 = 2,
-    lpsMode_TDoA3 = 3,
-} lpsMode_t;
-
-typedef struct {
-    // The status of anchors. A bit field (bit 0 - anchor 0, bit 1 - anchor 1 and so on)
-    // where a set bit indicates that an anchor reentry has been detected
-    volatile uint16_t rangingState;
-  
-    // Requested and current ranging mode
-    lpsMode_t userRequestedMode;
-    lpsMode_t currentRangingMode;
-  
-    // State of the ranging mode auto detection
-    bool modeAutoSearchDoInitialize;
-    bool modeAutoSearchActive;
-    uint32_t nextSwitchTick;
-} lpsAlgoOptions_t;
-
-bool locoDeckGetAnchorPosition(const uint8_t anchorId, point_t* position);
-uint8_t locoDeckGetAnchorIdList(uint8_t unorderedAnchorList[], const int maxListSize);
-uint8_t locoDeckGetActiveAnchorIdList(uint8_t unorderedAnchorList[], const int maxListSize);
-
 // Callbacks for uwb algorithms
 typedef struct uwbAlgorithm_s {
     void (*init)(dwDevice_t *dev);
-    uint32_t (*onEvent)(dwDevice_t *dev, uwbEvent_t event);
-    bool (*isRangingOk)();
+    void (*onEvent)(dwDevice_t *dev, uwbEvent_t event);
     bool (*getAnchorPosition)(const uint8_t anchorId, point_t* position);
+    // TODO: remove the following two functions
     uint8_t (*getAnchorIdList)(uint8_t unorderedAnchorList[], const int maxListSize);
     uint8_t (*getActiveAnchorIdList)(uint8_t unorderedAnchorList[], const int maxListSize);
 } uwbAlgorithm_t;
-
-typedef struct {
-    const locoAddress_t anchorAddress[LOCODECK_NR_OF_TDOA2_ANCHORS];
-
-    point_t anchorPosition[LOCODECK_NR_OF_TDOA2_ANCHORS];
-} lpsTdoa2AlgoOptions_t;
-
 
 void dw1000_init();
 

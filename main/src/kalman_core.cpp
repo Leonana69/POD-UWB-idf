@@ -45,6 +45,7 @@ Kalman::Kalman() {
     P[KC_STATE_D0][KC_STATE_D0] = powf(stdDevInitAtti_rpy, 2);
     P[KC_STATE_D1][KC_STATE_D1] = powf(stdDevInitAtti_rpy, 2);
     P[KC_STATE_D2][KC_STATE_D2] = powf(stdDevInitAtti_rpy, 2);
+
     Pm = dspm::Mat((float *)P, KC_STATE_DIM, KC_STATE_DIM);
 }
 
@@ -424,7 +425,35 @@ void Kalman::ExternalizeState(state_t *state, const vec3f_t *accel) {
 }
 
 void Kalman::ScalarUpdate(dspm::Mat *Hm, float error, float stdMeasNoise) {
+    dspm::Mat HTm = Hm->t();
+    dspm::Mat PHTm = Pm * HTm;
 
+    float R = stdMeasNoise * stdMeasNoise;
+    float HPHR = R;
+    for (int i = 0; i < KC_STATE_DIM; i++) {
+        HPHR += PHTm(i, 0) * (*Hm)(0, i);
+    }
+
+    dspm::Mat K = PHTm / HPHR;
+    for (int i = 0; i < KC_STATE_DIM; i++) {
+        S[i] += K(i, 0) * error;
+    }
+
+    dspm::Mat tmpNN1m = K * (*Hm) - dspm::Mat::eye(KC_STATE_DIM);
+    Pm = (tmpNN1m * Pm) * tmpNN1m.t();
+    
+    for (int i = 0; i < KC_STATE_DIM; i++) {
+        for (int j = i; j < KC_STATE_DIM; j++) {
+            float v = K(i, 0) * R * K(j, 0);
+            float p = 0.5f * P[i][j] + 0.5f * P[j][i] + v;
+            if (isnan(p) || p > MAX_COVARIANCE)
+                P[i][j] = P[j][i] = MAX_COVARIANCE;
+            else if (i == j && p < MIN_COVARIANCE)
+                P[i][j] = P[j][i] = MIN_COVARIANCE;
+            else
+                P[i][j] = P[j][i] = p;
+        }
+    }
 }
 
 bool Kalman::CheckBounds() {
@@ -441,4 +470,231 @@ bool Kalman::CheckBounds() {
         }
     }
     return true;
+}
+
+// Cholesky Decomposition for a nxn psd matrix (from scratch)
+// Reference: https://www.geeksforgeeks.org/cholesky-decomposition-matrix-decomposition/
+static void Cholesky_Decomposition(int n, float *matrix, float *lower){
+    // Decomposing a matrix into Lower Triangular
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j <= i; j++) {
+            float sum = 0.0;
+            if (j == i) {
+                // summation for diagnols
+                for (int k = 0; k < j; k++)
+                    sum += powf(lower[j * n + k], 2);
+                lower[j * n + j] = sqrtf(matrix[j * n + j] - sum);
+            } else {
+                for (int k = 0; k < j; k++)
+                    sum += (lower[i * n + k] * lower[j * n + k]);
+                lower[i * n + j] = (matrix[i * n + j] - sum) / lower[j * n + j];
+            }
+        }
+    }
+}
+
+static float GM_UWB(float e) {
+    float sigma = 2.0;
+    float GM_dn = sigma + e * e;
+    return (sigma * sigma) / (GM_dn * GM_dn);
+}
+
+static float GM_state(float e) {
+    float sigma = 1.5;
+    float GM_dn = sigma + e * e;
+    return (sigma * sigma) / (GM_dn * GM_dn);
+}
+
+#define MAX_ITER (2) // maximum iteration is set to 2.
+#define UPPER_BOUND (100)
+#define LOWER_BOUND (-100)
+
+// x_err comes from the KF update is the state of error state Kalman filter, set to be zero initially
+static float x_err[KC_STATE_DIM] = {0.0};
+static dspm::Mat x_errm = dspm::Mat(x_err, KC_STATE_DIM, 1);
+static int waitCount = 20;
+void Kalman::RobustTdoaUpdate(estimatorPacket_t *packet) {
+    if (waitCount > 0) {
+        waitCount--;
+        return;
+    }
+
+	float measurement = 0.0f;
+    float x = S[KC_STATE_X];
+    float y = S[KC_STATE_Y];
+    float z = S[KC_STATE_Z];
+
+    float x0 = packet->tdoa.anchorPositions[0].x, y0 = packet->tdoa.anchorPositions[0].y, z0 = packet->tdoa.anchorPositions[0].z;
+    float x1 = packet->tdoa.anchorPositions[1].x, y1 = packet->tdoa.anchorPositions[1].y, z1 = packet->tdoa.anchorPositions[1].z;
+
+    float dx0 = x - x0, dy0 = y - y0, dz0 = z - z0;
+    float dx1 = x - x1, dy1 = y - y1, dz1 = z - z1;
+    
+    float d0 = sqrtf(powf(dx0, 2) + powf(dy0, 2) + powf(dz0, 2));
+    float d1 = sqrtf(powf(dx1, 2) + powf(dy1, 2) + powf(dz1, 2));
+
+    // if measurements make sense
+    if ((d0 != 0.0f) && (d1 != 0.0f)) {
+        float predicted = d1 - d0;
+        measurement = packet->tdoa.distanceDiff;
+
+        // innovation term based on prior x
+        float error_check = measurement - predicted;    // innovation term based on prior state
+        // ---------------------- matrix defination ----------------------------- //
+        float P_chol[KC_STATE_DIM][KC_STATE_DIM] = {0.0}; // lower triangular matrix
+        dspm::Mat Pc_m = dspm::Mat((float *)P_chol, KC_STATE_DIM, KC_STATE_DIM);
+        dspm::Mat Hm = dspm::Mat(1, KC_STATE_DIM);
+
+        // ------------------- Initialization -----------------------//
+        float P_iter[KC_STATE_DIM][KC_STATE_DIM];
+        memcpy(P_iter, this->P, sizeof(P_iter));                 // init P_iter as P_prior
+
+        float R_iter = packet->tdoa.stdDev * packet->tdoa.stdDev;                    // measurement covariance
+        float X_state[KC_STATE_DIM] = {0.0};
+        memcpy(X_state, this->S, sizeof(X_state));                     // copy Xpr to X_State and then update in each iterations
+
+        dspm::Mat Kwm, P_w_m;
+
+        // ---------------------- Start iteration ----------------------- //
+        for (int iter = 0; iter < MAX_ITER; iter++) {
+            // cholesky decomposition for the prior covariance matrix
+            Cholesky_Decomposition(KC_STATE_DIM, (float *)P_iter, (float *)P_chol);      // P_chol is a lower triangular matrix
+            dspm::Mat Pc_tran_m = Pc_m.t();
+
+            // decomposition for measurement covariance (scalar case)
+            float R_chol = sqrtf(R_iter);
+            // construct H matrix
+            // X_state updates in each iteration
+            float x_iter = X_state[KC_STATE_X],  y_iter = X_state[KC_STATE_Y], z_iter = X_state[KC_STATE_Z];
+
+            dx1 = x_iter - x1; dy1 = y_iter - y1; dz1 = z_iter - z1;
+            dx0 = x_iter - x0; dy0 = y_iter - y0; dz0 = z_iter - z0;
+
+            d1 = sqrtf(powf(dx1, 2) + powf(dy1, 2) + powf(dz1, 2));
+            d0 = sqrtf(powf(dx0, 2) + powf(dy0, 2) + powf(dz0, 2));
+
+            float predicted_iter = d1 - d0;                           // predicted measurements in each iteration based on X_state
+            float error_iter = measurement - predicted_iter;          // innovation term based on iterated X_state
+            float e_y = error_iter;
+            if (d0 != 0.0f && d1 != 0.0f) {
+                // measurement Jacobian changes in each iteration w.r.t linearization point [x_iter, y_iter, z_iter]
+                Hm(0, KC_STATE_X) = (dx1 / d1 - dx0 / d0);
+                Hm(0, KC_STATE_Y) = (dy1 / d1 - dy0 / d0);
+                Hm(0, KC_STATE_Z) = (dz1 / d1 - dz0 / d0);
+
+                if (fabsf(R_chol - 0.0f) < 0.0001f){
+                    e_y = error_iter / 0.0001f;
+                } else {
+                    e_y = error_iter / R_chol;
+                }
+
+                // Make sure P_chol, lower trangular matrix, is numerically stable
+                for (int col = 0; col < KC_STATE_DIM; col++) {
+                    for (int row = col; row < KC_STATE_DIM; row++) {
+                        if (isnan(P_chol[row][col]) || P_chol[row][col] > UPPER_BOUND) {
+                            P_chol[row][col] = UPPER_BOUND;
+                        } else if(row != col && P_chol[row][col] < LOWER_BOUND){
+                            P_chol[row][col] = LOWER_BOUND;
+                        } else if(row == col && P_chol[row][col] < 0.0f){
+                            P_chol[row][col] = 0.0f;
+                        }
+                    }
+                }
+
+                // Matrix inversion is numerically sensitive.
+                // Add small values on the diagonal of P_chol to avoid numerical problems.
+                float dummy_value = 1e-9f;
+                for (int k = 0; k < KC_STATE_DIM; k++){
+                    P_chol[k][k] = P_chol[k][k] + dummy_value;
+                }
+                // keep P_chol
+                // inverse is really slow, so we use solve instead
+                // dspm::Mat Pc_inv_m = dspm::Mat(Pc_m).inverse();
+                // dspm::Mat e_x_m = Pc_inv_m * x_errm;                  // e_x_m = Pc_inv_m.dot(x_errm)
+                dspm::Mat e_x_m = dspm::Mat::solve(dspm::Mat(Pc_m), x_errm); // e_x_m = Pc_inv_m.dot(x_errm)
+
+                // compute w_x, w_y --> weighting matrix
+                // Since w_x is diagnal matrix, compute the inverse directly
+                dspm::Mat wx_invm = dspm::Mat(KC_STATE_DIM, KC_STATE_DIM);
+                for (int state_k = 0; state_k < KC_STATE_DIM; state_k++){
+                    wx_invm(state_k, state_k) = (float)1.0 / GM_state(e_x_m(state_k, 0));
+                }
+
+                // rescale covariance matrix P
+                dspm::Mat Pc_w_invm = Pc_m * wx_invm;                 // Pc_w_invm = P_chol.dot(linalg.inv(w_x))
+                P_w_m = Pc_w_invm * Pc_tran_m;              // P_w_m = Pc_w_invm.dot(Pc_tran_m) = P_chol.dot(linalg.inv(w_x)).dot(P_chol.T)
+                // rescale R matrix
+                float w_y = 0.0, R_w = 0.0f;
+                w_y = GM_UWB(e_y);                                    // compute the weighted measurement error: w_y
+                if (fabsf(w_y - 0.0f) < 0.0001f){
+                    R_w = (R_chol * R_chol) / 0.0001f;
+                } else {
+                    R_w = (R_chol * R_chol) / w_y;
+                }
+
+                // ====== INNOVATION COVARIANCE ====== //
+                dspm::Mat HTm = Hm.t();                                 // HTm = H.T
+
+                dspm::Mat PHTm = P_w_m * HTm;                          // PHTm = P_w.dot(H.T). The P is the updated P_w
+                float HPHR = (Hm * PHTm)(0, 0) + R_w;                          // HPH' + R.            The R is the updated R_w
+
+                // ====== MEASUREMENT UPDATE ======
+                // Calculate the Kalman gain and perform the state update
+                Kwm = PHTm / HPHR;                             // K_w = PHT / (HPH' + R)
+                for (int i = 0; i < KC_STATE_DIM; i++) {
+                    //[Note]: The error_check here is the innovation term based on prior state, which doesn't change during iterations.
+                    x_err[i] = Kwm(i, 0) * error_check;                   // error state for next iteration
+                    X_state[i] = this->S[i] + x_err[i];               // convert to nominal state
+                }
+                // update P_iter matrix and R matrix for next iteration
+                memcpy(P_iter, P_w_m.data, sizeof(P_iter));
+                R_iter = R_w;
+            }
+        }
+        // After n iterations, we obtain the rescaled (1) P = P_iter, (2) R = R_iter, (3) Kw.
+        // Call the kalman update function with weighted P, weighted K, h, and error_check
+        UpdateWithPKE(&Hm, &Kwm, &P_w_m, error_check);
+    }
+}
+
+void Kalman::UpdateWithPKE(dspm::Mat *Hm, dspm::Mat *Kwm, dspm::Mat *P_w_m, float error) {
+    for (int i = 0; i < KC_STATE_DIM; i++) {
+        this->S[i] = this->S[i] + (*Kwm)(i, 0) * error; // update state
+    }
+
+    // update covariance
+    dspm::Mat tmpNN1m = (*Kwm) * ((*Hm) * -1.0f) + dspm::Mat::eye(KC_STATE_DIM);
+    this->Pm = tmpNN1m * (*P_w_m); // Ppo = (I - K * H) * P
+
+    capCovariance();
+}
+
+void Kalman::TdoaUpdate(estimatorPacket_t *packet) {
+    float x = S[KC_STATE_X];
+    float y = S[KC_STATE_Y];
+    float z = S[KC_STATE_Z];
+
+    float x0 = packet->tdoa.anchorPositions[0].x, y0 = packet->tdoa.anchorPositions[0].y, z0 = packet->tdoa.anchorPositions[0].z;
+    float x1 = packet->tdoa.anchorPositions[1].x, y1 = packet->tdoa.anchorPositions[1].y, z1 = packet->tdoa.anchorPositions[1].z;
+
+    float dx0 = x - x0, dy0 = y - y0, dz0 = z - z0;
+    float dx1 = x - x1, dy1 = y - y1, dz1 = z - z1;
+
+    float d0 = sqrtf(powf(dx0, 2) + powf(dy0, 2) + powf(dz0, 2));
+    float d1 = sqrtf(powf(dx1, 2) + powf(dy1, 2) + powf(dz1, 2));
+    float predicted = d1 - d0;
+    float measurement = packet->tdoa.distanceDiff;
+    float error = measurement - predicted;
+
+    dspm::Mat Hm = dspm::Mat(1, KC_STATE_DIM);
+
+    if (d0 != 0.0f && d1 != 0.0f) {
+        // measurement Jacobian
+        Hm(0, KC_STATE_X) = (dx1 / d1 - dx0 / d0);
+        Hm(0, KC_STATE_Y) = (dy1 / d1 - dy0 / d0);
+        Hm(0, KC_STATE_Z) = (dz1 / d1 - dz0 / d0);
+
+        // update the Kalman filter with the new measurement
+        ScalarUpdate(&Hm, error, packet->tdoa.stdDev);
+    }
 }

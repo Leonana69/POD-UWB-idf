@@ -23,6 +23,7 @@ static int count = 0;
 bool processDataQueue() {
     estimatorPacket_t packet;
     bool update = false;
+    int64_t currentTime;
     while (STATIC_QUEUE_RECEIVE(estimatorDataQueue, &packet, 0) == pdTRUE) {
         switch (packet.type) {
             case ESTIMATOR_TYPE_IMU:
@@ -33,12 +34,16 @@ bool processDataQueue() {
                 }
                 imuCount++;
                 break;
+            case ESTIMATOR_TYPE_UWB:
+                kalmanCore.TdoaUpdate(&packet);
+                update = true;
+                break;
             default:
                 break;
         }
     }
 
-    int64_t currentTime = esp_timer_get_time();
+    currentTime = esp_timer_get_time();
     int64_t dt = currentTime - lastImuPrediction;
     if (imuCount > 0 && dt >= 1000000 / ESTIMATOR_PREDICTION_RATE) {
         for (int i = 0; i < 3; i++) {
@@ -95,12 +100,12 @@ void estimatorKalmanTask(void *argument) {\
         kalmanCore.ExternalizeState(&stateData, &latestImu.accel);
         STATIC_MUTEX_UNLOCK(estimatorDataMutex);
 
-        // if (count++ % 250 == 0) {
-        //     printf("State: %.2f %.2f %.2f, %.2f %.2f %.2f, %.2f %.2f %.2f\n",
-        //         stateData.position.x, stateData.position.y, stateData.position.z,
-        //         stateData.velocity.x, stateData.velocity.y, stateData.velocity.z,
-        //         stateData.attitude.roll, stateData.attitude.pitch, stateData.attitude.yaw);
-        // }
+        if (count++ % 250 == 0) {
+            printf("State: %.2f %.2f %.2f, %.2f %.2f %.2f, %.2f %.2f %.2f\n",
+                stateData.position.x, stateData.position.y, stateData.position.z,
+                stateData.velocity.x, stateData.velocity.y, stateData.velocity.z,
+                stateData.attitude.roll, stateData.attitude.pitch, stateData.attitude.yaw);
+        }
     }
 }
 
@@ -109,5 +114,5 @@ void estimatorInit() {
     STATIC_QUEUE_INIT(estimatorDataQueue);
     lastImuPrediction = esp_timer_get_time();
 
-    xTaskCreatePinnedToCore(estimatorKalmanTask, "kalman_task", 4096, NULL, 5, NULL, 1);
+    xTaskCreatePinnedToCore(estimatorKalmanTask, "kalman_task", 8192, NULL, 3, NULL, 0);
 }

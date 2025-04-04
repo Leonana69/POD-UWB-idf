@@ -10,8 +10,6 @@ static spi_device_handle_t spi_handle;
 static bool isInit = false;
 dwDevice_t dwm_device;
 dwDevice_t *dwm = &dwm_device;
-
-static uint32_t timeout;
 static uwbAlgorithm_t *uwbAlgorithm = &uwbTdoa2TagAlgorithm;
 
 TaskHandle_t uwbTaskHandle;
@@ -168,21 +166,6 @@ static void delayms(dwDevice_t* dev, unsigned int delay) {
     vTaskDelay(delay);
 }
 
-/// @brief Tdoa2 config ///
-static lpsTdoa2AlgoOptions_t defaultOptions = {
-    .anchorAddress = {
-      0xbccf000000000000,
-      0xbccf000000000001,
-    },
-    .anchorPosition = {
-        // edit this
-        {timestamp: 1, x: 0.99, y: 1.49, z: 1.80},
-        {timestamp: 1, x: 0.99, y: 3.29, z: 1.80},
-    },
-};
-
-static lpsTdoa2AlgoOptions_t* options = &defaultOptions;
-
 static dwOps_t dwOps = {
     .spiRead = spiRead,
     .spiWrite = spiWrite,
@@ -190,67 +173,20 @@ static dwOps_t dwOps = {
     .delayms = delayms,
 };
 
-// static uint32_t onEvent(dwDevice_t *dev, uwbEvent_t event) {
-//     switch(event) {
-//         case eventPacketReceived:
-//             if (rxcallback(dev)) {
-//                 lppPacketToSend = false;
-//             } else {
-//                 setRadioInReceiveMode(dev);
-
-//                 // Discard lpp packet if we cannot send it for too long
-//                 if (++lppPacketSendTryCounter >= TDOA2_LPP_PACKET_SEND_TIMEOUT) {
-//                 lppPacketToSend = false;
-//                 }
-//             }
-
-//             if (!lppPacketToSend) {
-//                 // Get next lpp packet
-//                 lppPacketToSend = lpsGetLppShort(&lppPacket);
-//                 lppPacketSendTryCounter = 0;
-//             }
-//             break;
-//         case eventTimeout:
-//         // Fall through
-//         case eventReceiveFailed:
-//         // Fall through
-//         case eventReceiveTimeout:
-//             setRadioInReceiveMode(dev);
-//             break;
-//         case eventPacketSent:
-//             // Service packet sent, the radio is back to receive automatically
-//             break;
-//         default:
-//             printf("Unknown event %d\n", event);
-//             break;
-//     }
-  
-//     uint32_t now = xTaskGetTickCount();
-//     uint16_t rangingState = 0;
-//     for (int anchor = 0; anchor < LOCODECK_NR_OF_TDOA2_ANCHORS; anchor++) {
-//       if (now < history[anchor].anchorStatusTimeout) {
-//         rangingState |= (1 << anchor);
-//       }
-//     }
-//     locoDeckSetRangingState(rangingState);
-  
-//     return MAX_TIMEOUT;
-// }
-
 static void txCallback(dwDevice_t *dev) {
-    timeout = uwbAlgorithm->onEvent(dev, eventPacketSent);
+    uwbAlgorithm->onEvent(dev, eventPacketSent);
 }
 
 static void rxCallback(dwDevice_t *dev) {
-    timeout = uwbAlgorithm->onEvent(dev, eventPacketReceived);
+    uwbAlgorithm->onEvent(dev, eventPacketReceived);
 }
 
 static void rxTimeoutCallback(dwDevice_t *dev) {
-    timeout = uwbAlgorithm->onEvent(dev, eventReceiveTimeout);
+    uwbAlgorithm->onEvent(dev, eventReceiveTimeout);
 }
 
 static void rxFailedCallback(dwDevice_t *dev) {
-    timeout = uwbAlgorithm->onEvent(dev, eventReceiveFailed);
+    uwbAlgorithm->onEvent(dev, eventReceiveFailed);
 }
 
 /// @brief dw1000 setup ///
@@ -300,12 +236,7 @@ void dw1000_init() {
     dwSetReceiveWaitTimeout(dwm, 10000);
     dwCommitConfiguration(dwm);
 
-    // memoryRegisterHandler(&memDef);
-    // algoSemaphore= xSemaphoreCreateMutex();
-    // xTaskCreate(uwbTask, LPS_DECK_TASK_NAME, LPS_DECK_STACKSIZE, NULL,
-    //                 LPS_DECK_TASK_PRI, &uwbTaskHandle);
-
-    xTaskCreatePinnedToCore(uwbTask, "loco_service_task", 8192, NULL, 20, &uwbTaskHandle, 0);
+    xTaskCreatePinnedToCore(uwbTask, "loco_service_task", 8192, NULL, 20, &uwbTaskHandle, 1);
     printf("DW1000 Init [OK]\n");
     isInit = true;
 }

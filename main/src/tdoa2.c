@@ -2,49 +2,41 @@
 #include "mac.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-
-static uint8_t previousAnchor;
-static bool lppPacketToSend = false;
-static int lppPacketSendTryCounter = 0;
-static bool rangingOk = false;
-
-// Anchor configuration
-static lpsTdoa2AlgoOptions_t defaultOptions = {
-    .anchorAddress = {
-      0xbccf000000000000,
-      0xbccf000000000001,
-      0xbccf000000000002,
-      0xbccf000000000003,
-      0xbccf000000000004,
-      0xbccf000000000005,
-      0xbccf000000000006,
-      0xbccf000000000007,
-    },
-};
+#include "estimator.h"
 
 static double clockCorrection = 1.0;
 static uint8_t clockCorrectionBucket = 0;
 static tdoaAnchorInfo_t anchorInfoArray[LOCODECK_NR_OF_TDOA2_ANCHORS];
 
+static bool getAnchorPosition(const uint8_t anchorId, point_t* position) {
+    // Example: Retrieve from a predefined array (replace with actual data)
+    const point_t anchorPositions[] = {
+        {x: 0.0, y: 0.0, z: 0.0},   // Anchor 0
+        {x: 2.0, y: 0.0, z: 0.0},   // Anchor 1
+        {x: 1.0, y: 0.0, z: 0.0},   // Anchor 2
+        {x: 1.0, y: 0.0, z: 0.0},   // Anchor 3
+        {x: 1.0, y: 0.0, z: 0.0},   // Anchor 4
+        {x: 1.0, y: 0.0, z: 0.0},   // Anchor 5
+        {x: 1.0, y: 0.0, z: 0.0},   // Anchor 6
+        {x: 1.0, y: 0.0, z: 0.0},   // Anchor 7
+        // ... Add other anchor positions
+    };
+    if (anchorId < LOCODECK_NR_OF_TDOA2_ANCHORS) {
+        *position = anchorPositions[anchorId];
+        return true;
+    }
+    return false;
+}
+
 static void init(dwDevice_t *dev) {
-    // uint32_t now_ms = (uint32_t) xTaskGetTickCount();
-    // tdoaEngineInit(&tdoaEngineState, now_ms, sendTdoaToEstimatorCallback, LOCODECK_TS_FREQ, TdoaEngineMatchingAlgorithmYoungest);
     for (int i = 0; i < LOCODECK_NR_OF_TDOA2_ANCHORS; i++) {
         anchorInfoArray[i].id = i;
         anchorInfoArray[i].isInitialized = true;
+        getAnchorPosition(i, &anchorInfoArray[i].position);
     }
-
 
     dwSetReceiveWaitTimeout(dev, TDOA2_RECEIVE_TIMEOUT);
     dwCommitConfiguration(dev);
-
-    previousAnchor = 0;
-    lppPacketToSend = false;
-    rangingOk = false;
-}
-
-static bool isRangingOk() {
-    return rangingOk;
 }
 
 static void setRadioInReceiveMode(dwDevice_t *dev) {
@@ -57,7 +49,7 @@ static uint64_t _trunc(uint64_t value) {
     return value & 0x00FFFFFFFF;
 }
 
-static bool rxCallback(dwDevice_t *dev) {
+static void rxCallback(dwDevice_t *dev) {
     static int debug_count = 0;
 
     int dataLength = dwGetDataLength(dev);
@@ -65,8 +57,7 @@ static bool rxCallback(dwDevice_t *dev) {
   
     dwGetData(dev, (uint8_t*)&rxPacket, dataLength);
     const rangePacket2_t* packet = (rangePacket2_t*)rxPacket.payload;
-  
-    bool lppSent = false;
+
     if (packet->type == 0x22) {
         const uint8_t anchor = rxPacket.sourceAddress & 0xff;
     
@@ -92,7 +83,7 @@ static bool rxCallback(dwDevice_t *dev) {
 
             if (anchorCtx.anchorInfo == NULL) {
                 printf("Anchor %d not found\n", anchor);
-                return false;
+                return;
             }
 
             // Update remote anchor data
@@ -178,17 +169,18 @@ static bool rxCallback(dwDevice_t *dev) {
                 const double distance = (double) timeDiffOfArrival_in_cl_T * SPEED_OF_LIGHT / (double)LOCODECK_TS_FREQ;
 
                 // if (debug_count % 50 == 0 || debug_count % 50 == 1) {
-                printf("%d -> %d: %.2f\n", anchor, youngestAnchorId, distance);
+                // printf("%d -> %d: %.2f\n", anchor, youngestAnchorId, distance);
                 // }
-                // estimatorPacket_t packet;
-                // packet.type = ESTIMATOR_TYPE_UWB;
-                // packet.tdoa.distanceDiff = distance;
-                // packet.tdoa.stdDev = 0.15f;
+                estimatorPacket_t packet;
+                packet.type = ESTIMATOR_TYPE_UWB;
+                packet.tdoa.distanceDiff = distance;
+                packet.tdoa.stdDev = 0.15f;
 
-                // packet.tdoa.anchorIds[0] = anchorCtx.anchorInfo->id;
-                // packet.tdoa.anchorIds[1] = otherAnchorCtx.anchorInfo->id;
-                // packet.tdoa.anchorPositions[0] = anchorCtx.anchorInfo->position;
-                // packet.tdoa.anchorPositions[1] = otherAnchorCtx.anchorInfo->position;
+                packet.tdoa.anchorIds[0] = anchorCtx.anchorInfo->id;
+                packet.tdoa.anchorIds[1] = otherAnchorCtx.anchorInfo->id;
+                packet.tdoa.anchorPositions[0] = anchorCtx.anchorInfo->position;
+                packet.tdoa.anchorPositions[1] = otherAnchorCtx.anchorInfo->position;
+                estimatorKalmanEnqueue(&packet);
 
                 debug_count++;
             }
@@ -198,33 +190,15 @@ static bool rxCallback(dwDevice_t *dev) {
             anchorCtx.anchorInfo->txTime = txAn_in_cl_An;
             anchorCtx.anchorInfo->rxTime = rxAn_by_T_in_cl_T;
             anchorCtx.anchorInfo->seqNr = seqNr;
-    
-            rangingOk = true;
         }
     }
-
-    return lppSent;
 }
 
-static uint32_t onEvent(dwDevice_t *dev, uwbEvent_t event) {
-    switch(event) {
+static void onEvent(dwDevice_t *dev, uwbEvent_t event) {
+    switch (event) {
         case eventPacketReceived:
-            if (rxCallback(dev)) {
-                lppPacketToSend = false;
-            } else {
-                setRadioInReceiveMode(dev);
-    
-                // Discard lpp packet if we cannot send it for too long
-                if (++lppPacketSendTryCounter >= TDOA2_LPP_PACKET_SEND_TIMEOUT) {
-                    lppPacketToSend = false;
-                }
-            }
-    
-            // if (!lppPacketToSend) {
-            //     // Get next lpp packet
-            //     lppPacketToSend = lpsGetLppShort(&lppPacket);
-            //     lppPacketSendTryCounter = 0;
-            // }
+            rxCallback(dev);
+            setRadioInReceiveMode(dev);
             break;
         case eventTimeout:
             // Fall through
@@ -240,46 +214,10 @@ static uint32_t onEvent(dwDevice_t *dev, uwbEvent_t event) {
             printf("TDOA2: UNEXPECTED EVENT\n");
             break;
     }
-  
-    return portMAX_DELAY;
-}
-
-static bool getAnchorPosition(const uint8_t anchorId, point_t* position) {
-    // Example: Retrieve from a predefined array (replace with actual data)
-    const point_t anchorPositions[] = {
-        {x: 0.0, y: 0.0, z: 0.0},   // Anchor 0
-        {x: 1.0, y: 0.0, z: 0.0},   // Anchor 1
-        {x: 1.0, y: 0.0, z: 0.0},   // Anchor 2
-        {x: 1.0, y: 0.0, z: 0.0},   // Anchor 3
-        {x: 1.0, y: 0.0, z: 0.0},   // Anchor 4
-        {x: 1.0, y: 0.0, z: 0.0},   // Anchor 5
-        {x: 1.0, y: 0.0, z: 0.0},   // Anchor 6
-        {x: 1.0, y: 0.0, z: 0.0},   // Anchor 7
-        // ... Add other anchor positions
-    };
-    if (anchorId < LOCODECK_NR_OF_TDOA2_ANCHORS) {
-        *position = anchorPositions[anchorId];
-        return true;
-    }
-    return false;
-}
-  
-static uint8_t getAnchorIdList(uint8_t unorderedAnchorList[], const int maxListSize) {
-    // return tdoaStorageGetListOfAnchorIds(tdoaEngineState.anchorInfoArray, unorderedAnchorList, maxListSize);
-    return 0;
-}
-  
-static uint8_t getActiveAnchorIdList(uint8_t unorderedAnchorList[], const int maxListSize) {
-    // uint32_t now_ms = (uint32_t) xTaskGetTickCount();
-    // return tdoaStorageGetListOfActiveAnchorIds(tdoaEngineState.anchorInfoArray, unorderedAnchorList, maxListSize, now_ms);}
-    return 0;
 }
 
 uwbAlgorithm_t uwbTdoa2TagAlgorithm = {
     .init = init,
     .onEvent = onEvent,
-    .isRangingOk = isRangingOk,
     .getAnchorPosition = getAnchorPosition,
-    .getAnchorIdList = getAnchorIdList,
-    .getActiveAnchorIdList = getActiveAnchorIdList,
   };
