@@ -9,6 +9,7 @@
     "files.associations": {
         "gpio.h": "c",
         "iostream": "cpp",
-        "limits": "cpp"
+        "limits": "cpp",
+        "web_service.h": "c"
     }
 }

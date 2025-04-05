@@ -9,7 +9,7 @@ extern "C" {
 
 void estimatorInit();
 void estimatorKalmanEnqueue(estimatorPacket_t *packet);
-void estimatorKalmanUpdate(state_t *state);
+void estimatorKalmanGetState(state_t *state);
 
 #ifdef __cplusplus
 }

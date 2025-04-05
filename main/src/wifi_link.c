@@ -6,6 +6,7 @@
 #include "lwip/netdb.h"
 #include "lwip/err.h"
 #include "freertos/event_groups.h"
+#include "web_service.h"
 
 static bool wifiConnected = false;
 
@@ -60,6 +61,8 @@ static void event_handler(void* arg, esp_event_base_t event_base,
         } else {
             printf("Failed to get signal strength\n");
         }
+        // Start the web server
+        webServiceInit();
     }
 }
 

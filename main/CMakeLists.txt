@@ -7,6 +7,7 @@ idf_component_register(
          "src/estimator.cpp"
          "src/button.c"
          "src/wifi_link.c"
+         "src/web_service.c"
          "src/imu.c"
          "src/filter.c"
          "src/loco.c"

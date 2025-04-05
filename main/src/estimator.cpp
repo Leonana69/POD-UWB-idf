@@ -61,7 +61,7 @@ bool processDataQueue() {
     return update;
 }
 
-void estimatorKalmanUpdate(state_t *state) {
+void estimatorKalmanGetState(state_t *state) {
     STATIC_MUTEX_LOCK(estimatorDataMutex, portMAX_DELAY);
     *state = stateData;
     STATIC_MUTEX_UNLOCK(estimatorDataMutex);
