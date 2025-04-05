@@ -35,8 +35,8 @@ bool processDataQueue() {
                 imuCount++;
                 break;
             case ESTIMATOR_TYPE_UWB:
-                // kalmanCore.TdoaUpdate(&packet);
-                // update = true;
+                kalmanCore.TdoaUpdate(&packet);
+                update = true;
                 break;
             default:
                 break;
@@ -100,12 +100,12 @@ void estimatorKalmanTask(void *argument) {\
         kalmanCore.ExternalizeState(&stateData, &latestImu.accel);
         STATIC_MUTEX_UNLOCK(estimatorDataMutex);
 
-        // if (count++ % 250 == 0) {
-        //     printf("State: %.2f %.2f %.2f, %.2f %.2f %.2f, %.2f %.2f %.2f\n",
-        //         stateData.position.x, stateData.position.y, stateData.position.z,
-        //         stateData.velocity.x, stateData.velocity.y, stateData.velocity.z,
-        //         stateData.attitude.roll, stateData.attitude.pitch, stateData.attitude.yaw);
-        // }
+        if (count++ % 250 == 0) {
+            printf("State: %.2f %.2f %.2f, %.2f %.2f %.2f, %.2f %.2f %.2f\n",
+                stateData.position.x, stateData.position.y, stateData.position.z,
+                stateData.velocity.x, stateData.velocity.y, stateData.velocity.z,
+                stateData.attitude.roll, stateData.attitude.pitch, stateData.attitude.yaw);
+        }
     }
 }
 

@@ -15,17 +15,17 @@ static const float stdDevInitPos_z = 1;
 static const float stdDevInitVel_xyz = 0.01;
 static const float stdDevInitAtti_rpy = 0.01;
 
-static float procNoiseAcc_xy = 0.2f;
-static float procNoiseAcc_z = 0.3f;
-static float procNoiseVel = 0.02f;
-static float procNoisePos = 0.01f;
-static float procNoiseAtt = 0.005f;
-// static float measNoiseGyro_roll_pitch = 0.1f; // radians per second
-// static float measNoiseGyro_yaw = 0.1f; // radians per second
-static float measNoiseGyro_roll_pitch = 0.000041f;  // in rad/s
-static float measNoiseGyro_yaw       = 0.000041f;  // in rad/s
-static float measNoiseAccel_xy       = 0.00047f;   // in m/s²
-static float measNoiseAccel_z        = 0.00047f;   // in m/s²
+static float procNoiseAcc_xy = 0.5f;
+static float procNoiseAcc_z = 0.5f;
+static float procNoiseVel = 0.0f;
+static float procNoisePos = 0.0f;
+static float procNoiseAtt = 0.0f;
+static float measNoiseGyro_roll_pitch = 0.1f; // radians per second
+static float measNoiseGyro_yaw = 0.1f; // radians per second
+// static float measNoiseGyro_roll_pitch = 0.000041f;  // in rad/s
+// static float measNoiseGyro_yaw       = 0.000041f;  // in rad/s
+// static float measNoiseAccel_xy       = 0.00047f;   // in m/s²
+// static float measNoiseAccel_z        = 0.00047f;   // in m/s²
 
 Kalman::Kalman() {
     // Initialize the Kalman filter state
@@ -216,8 +216,13 @@ void Kalman::Predict(imu_t* imuData, float dt, bool isFlying) {
     // compute the quaternion values in [w,x,y,z] order
     float angle = sqrtf(dtwx * dtwx + dtwy * dtwy + dtwz * dtwz);
     float ca = cosf(angle / 2.0f);
-    float sa = sinf(angle / 2.0f);
-    float dq[4] = {ca , sa * dtwx / angle , sa * dtwy / angle , sa * dtwz / angle};
+    float sa_angle;
+    if (angle < EPSILON) {
+        sa_angle = 1.0f;
+    } else {
+        sa_angle = sinf(angle / 2.0f) / angle;
+    }
+    float dq[4] = {ca, sa_angle * dtwx, sa_angle * dtwy, sa_angle * dtwz};
 
     float tmpq0, tmpq1, tmpq2, tmpq3;
     // rotate the quad's attitude by the delta quaternion vector computed above
@@ -243,7 +248,6 @@ void Kalman::Predict(imu_t* imuData, float dt, bool isFlying) {
 
     // normalize and store the result
     float norm = sqrtf(tmpq0 * tmpq0 + tmpq1 * tmpq1 + tmpq2 * tmpq2 + tmpq3 * tmpq3);
-
     q[0] = tmpq0 / norm;
     q[1] = tmpq1 / norm;
     q[2] = tmpq2 / norm;

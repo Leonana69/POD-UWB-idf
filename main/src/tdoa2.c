@@ -107,7 +107,6 @@ static void rxCallback(dwDevice_t *dev) {
                 }
             }
 
-            // TODO: clock correction
             bool sampleIsReliable = false;
             const int64_t latest_rxAn_by_T_in_cl_T = anchorCtx.anchorInfo->rxTime;
             const int64_t latest_txAn_in_cl_An = anchorCtx.anchorInfo->txTime;
@@ -178,9 +177,6 @@ static void rxCallback(dwDevice_t *dev) {
                     ra->history[ra->historyIndex] = distance;
                     ra->historyIndex = (ra->historyIndex + 1) % TDOA2_REMOTE_HISTORY_COUNT;
                     if (fabsf(mean - distance) < 1.0f) {
-                        // if (debug_count % 50 == 0 || debug_count % 50 == 1) {
-                        // printf("%d -> %d: %.2f %f\n", anchor, youngestAnchorId, distance);
-                        // }
                         estimatorPacket_t packet;
                         packet.type = ESTIMATOR_TYPE_UWB;
                         packet.tdoa.distanceDiff = distance;
