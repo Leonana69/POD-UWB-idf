@@ -6,8 +6,10 @@ extern "C" {
 #endif
 
 #include "config.h"
+#include "types.h"
 
 void imuInit();
+vec3f_t getInitialAccel();
 
 #ifdef __cplusplus
 }

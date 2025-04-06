@@ -18,7 +18,7 @@ open:
 	@screen -r
 
 close:
-	@echo "Closing screen"
-	@screen -X -S $$(screen -ls | grep Detached | awk '{print $$1}') quit
+	@echo "Closing screen..."
+	@screen -ls | grep Detached | awk '{print $$1}' | while read session; do screen -X -S $$session quit; done
 
 .PHONY: build flash

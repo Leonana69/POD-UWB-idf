@@ -9,44 +9,70 @@
 #define EPSILON        (1e-6f)
 #define ROLLPITCH_ZERO_REVERSION (0.001f)
 
-// Initial variances, uncertain of position, but know we're stationary and roughly flat
-static const float stdDevInitPos_xy = 100;
-static const float stdDevInitPos_z = 1;
-static const float stdDevInitVel_xyz = 0.01;
-static const float stdDevInitAtti_rpy = 0.01;
+// Initial variances, uncertain of position, but know we're stationary
+static const float initStdDevPos_xy = 100;
+static const float initStdDevPos_z = 100;
+static const float initStdDevVel_xyz = 0.01;
+static const float initStdDevAtt_rpy = 0.01;
 
 static float procNoiseAcc_xy = 0.5f;
 static float procNoiseAcc_z = 0.5f;
 static float procNoiseVel = 0.0f;
 static float procNoisePos = 0.0f;
 static float procNoiseAtt = 0.0f;
-static float measNoiseGyro_roll_pitch = 0.1f; // radians per second
-static float measNoiseGyro_yaw = 0.1f; // radians per second
-// static float measNoiseGyro_roll_pitch = 0.000041f;  // in rad/s
-// static float measNoiseGyro_yaw       = 0.000041f;  // in rad/s
+static float measNoiseGyr_rpy = 0.1f; // radians per second
+// static float measNoiseGyr_rpy = 0.000041f;  // in rad/s
 // static float measNoiseAccel_xy       = 0.00047f;   // in m/s²
 // static float measNoiseAccel_z        = 0.00047f;   // in m/s²
 
-Kalman::Kalman() {
-    // Initialize the Kalman filter state
+Kalman::Kalman(vec3f_t initialAccel) {
     memset(S, 0, sizeof(S));
     memset(q, 0, sizeof(q));
     memset(R, 0, sizeof(R));
     memset(P, 0, sizeof(P));
 
-    q[0] = 1.0f; // Initialize the quaternion to identity
-    R[0][0] = R[1][1] = R[2][2] = 1.0f; // Initialize the rotation matrix to identity
+    S[KC_STATE_X] = 3.0f; // x
+    S[KC_STATE_Y] = 3.0f; // y
+    S[KC_STATE_Z] = 3.0f; // z
 
-    P[KC_STATE_X][KC_STATE_X] = powf(stdDevInitPos_xy, 2);
-    P[KC_STATE_Y][KC_STATE_Y] = powf(stdDevInitPos_xy, 2);
-    P[KC_STATE_Z][KC_STATE_Z] = powf(stdDevInitPos_z, 2);
-    P[KC_STATE_PX][KC_STATE_PX] = powf(stdDevInitVel_xyz, 2);
-    P[KC_STATE_PY][KC_STATE_PY] = powf(stdDevInitVel_xyz, 2);
-    P[KC_STATE_PZ][KC_STATE_PZ] = powf(stdDevInitVel_xyz, 2);
-    P[KC_STATE_D0][KC_STATE_D0] = powf(stdDevInitAtti_rpy, 2);
-    P[KC_STATE_D1][KC_STATE_D1] = powf(stdDevInitAtti_rpy, 2);
-    P[KC_STATE_D2][KC_STATE_D2] = powf(stdDevInitAtti_rpy, 2);
+    // Initialize the rotation matrix and quaternion
+    float ax = initialAccel.x;
+    float ay = initialAccel.y;
+    float az = initialAccel.z;
 
+    float norm = sqrt(ax * ax + ay * ay + az * az);
+    ax /= norm;
+    ay /= norm;
+    az /= norm;
+    // Compute roll and pitch from gravity
+    float roll = atan2(ay, az);
+    float pitch = atan2(-ax, sqrt(ay * ay + az * az));
+    float yaw = 0.0f; // No way to estimate yaw with just accel
+
+    // Convert to quaternion
+    float cy = cosf(yaw * 0.5f);
+    float sy = sinf(yaw * 0.5f);
+    float cp = cosf(pitch * 0.5f);
+    float sp = sinf(pitch * 0.5f);
+    float cr = cosf(roll * 0.5f);
+    float sr = sinf(roll * 0.5f);
+
+    q[0] = cr * cp * cy + sr * sp * sy;
+    q[1] = sr * cp * cy - cr * sp * sy;
+    q[2] = cr * sp * cy + sr * cp * sy;
+    q[3] = cr * cp * sy - sr * sp * cy;
+    _UpdateRotationMatrix();
+
+    // Initialize the covariance matrix
+    P[KC_STATE_X][KC_STATE_X] = powf(initStdDevPos_xy, 2);
+    P[KC_STATE_Y][KC_STATE_Y] = powf(initStdDevPos_xy, 2);
+    P[KC_STATE_Z][KC_STATE_Z] = powf(initStdDevPos_z, 2);
+    P[KC_STATE_PX][KC_STATE_PX] = powf(initStdDevVel_xyz, 2);
+    P[KC_STATE_PY][KC_STATE_PY] = powf(initStdDevVel_xyz, 2);
+    P[KC_STATE_PZ][KC_STATE_PZ] = powf(initStdDevVel_xyz, 2);
+    P[KC_STATE_D0][KC_STATE_D0] = powf(initStdDevAtt_rpy, 2);
+    P[KC_STATE_D1][KC_STATE_D1] = powf(initStdDevAtt_rpy, 2);
+    P[KC_STATE_D2][KC_STATE_D2] = powf(initStdDevAtt_rpy, 2);
     Pm = dspm::Mat((float *)P, KC_STATE_DIM, KC_STATE_DIM);
 }
 
@@ -208,50 +234,8 @@ void Kalman::Predict(imu_t* imuData, float dt, bool isFlying) {
     }
 
     // attitude update (rotate by gyroscope), we do this in quaternions
-    // this is the gyroscope angular velocity integrated over the sample period
-    float dtwx = dt * gyro->x;
-    float dtwy = dt * gyro->y;
-    float dtwz = dt * gyro->z;
-
     // compute the quaternion values in [w,x,y,z] order
-    float angle = sqrtf(dtwx * dtwx + dtwy * dtwy + dtwz * dtwz);
-    float ca = cosf(angle / 2.0f);
-    float sa_angle;
-    if (angle < EPSILON) {
-        sa_angle = 1.0f;
-    } else {
-        sa_angle = sinf(angle / 2.0f) / angle;
-    }
-    float dq[4] = {ca, sa_angle * dtwx, sa_angle * dtwy, sa_angle * dtwz};
-
-    float tmpq0, tmpq1, tmpq2, tmpq3;
-    // rotate the quad's attitude by the delta quaternion vector computed above
-    tmpq0 = dq[0] * q[0] - dq[1] * q[1] - dq[2] * q[2] - dq[3] * q[3];
-    tmpq1 = dq[1] * q[0] + dq[0] * q[1] + dq[3] * q[2] - dq[2] * q[3];
-    tmpq2 = dq[2] * q[0] - dq[3] * q[1] + dq[0] * q[2] + dq[1] * q[3];
-    tmpq3 = dq[3] * q[0] + dq[2] * q[1] - dq[1] * q[2] + dq[0] * q[3];
-
-    /* This reversion would cause yaw estimation diminish to zero */
-    // if (!isFlying) {
-    //     float keep = 1.0f - ROLLPITCH_ZERO_REVERSION;
-    
-    //     // Extract yaw from the current quaternion
-    //     float yaw = atan2f(2.0f * (tmpq0 * tmpq3 + tmpq1 * tmpq2),
-    //                        1.0f - 2.0f * (tmpq2 * tmpq2 + tmpq3 * tmpq3));
-    
-    //     // Reset roll and pitch while preserving yaw
-    //     tmpq0 = keep * tmpq0 + ROLLPITCH_ZERO_REVERSION * cosf(yaw / 2.0f);
-    //     tmpq1 = keep * tmpq1;
-    //     tmpq2 = keep * tmpq2;
-    //     tmpq3 = keep * tmpq3 + ROLLPITCH_ZERO_REVERSION * sinf(yaw / 2.0f);
-    // }
-
-    // normalize and store the result
-    float norm = sqrtf(tmpq0 * tmpq0 + tmpq1 * tmpq1 + tmpq2 * tmpq2 + tmpq3 * tmpq3);
-    q[0] = tmpq0 / norm;
-    q[1] = tmpq1 / norm;
-    q[2] = tmpq2 / norm;
-    q[3] = tmpq3 / norm;
+    _DeltaGyro2Quaternion(dt * gyro->x, dt * gyro->y, dt * gyro->z);
 }
 
 void Kalman::AddProcessNoise(float dt) {
@@ -276,16 +260,16 @@ void Kalman::AddProcessNoise(float dt) {
                                                + powf(procNoiseVel, 2);
 
         // Add process noise on attitude
-        P[KC_STATE_D0][KC_STATE_D0] += powf(measNoiseGyro_roll_pitch * dt, 2) 
+        P[KC_STATE_D0][KC_STATE_D0] += powf(measNoiseGyr_rpy * dt, 2) 
                                                + powf(procNoiseAtt, 2);
-        P[KC_STATE_D1][KC_STATE_D1] += powf(measNoiseGyro_roll_pitch * dt, 2) 
+        P[KC_STATE_D1][KC_STATE_D1] += powf(measNoiseGyr_rpy * dt, 2) 
                                                + powf(procNoiseAtt, 2);
-        P[KC_STATE_D2][KC_STATE_D2] += powf(measNoiseGyro_yaw * dt, 2) 
+        P[KC_STATE_D2][KC_STATE_D2] += powf(measNoiseGyr_rpy * dt, 2) 
                                                + powf(procNoiseAtt, 2);
     }
 
     // Cap covariance values to ensure numerical stability
-    capCovariance();
+    _CapCovariance();
 }
 
 void Kalman::Finalize() {
@@ -299,25 +283,9 @@ void Kalman::Finalize() {
 
     // Move attitude error into attitude if any of the angle errors are large enough
     if ((fabsf(v0) > 1e-4f || fabsf(v1) > 1e-4f || fabsf(v2) > 1e-4f) && (fabsf(v0) < 10 && fabsf(v1) < 10 && fabsf(v2) < 10)) {
-        float angle = sqrtf(v0 * v0 + v1 * v1 + v2 * v2);
-        float ca = cosf(angle / 2.0f);
-        float sa = sinf(angle / 2.0f);
-        float dq[4] = { ca, sa * v0 / angle, sa * v1 / angle, sa * v2 / angle };
+        _DeltaGyro2Quaternion(v0, v1, v2);
 
-        // rotate the quad's attitude by the delta quaternion vector computed above
-        float tmpq0 = dq[0] * q[0] - dq[1] * q[1] - dq[2] * q[2] - dq[3] * q[3];
-        float tmpq1 = dq[1] * q[0] + dq[0] * q[1] + dq[3] * q[2] - dq[2] * q[3];
-        float tmpq2 = dq[2] * q[0] - dq[3] * q[1] + dq[0] * q[2] + dq[1] * q[3];
-        float tmpq3 = dq[3] * q[0] + dq[2] * q[1] - dq[1] * q[2] + dq[0] * q[3];
-
-        // normalize and store the result
-        float norm = sqrtf(tmpq0 * tmpq0 + tmpq1 * tmpq1 + tmpq2 * tmpq2 + tmpq3 * tmpq3);
-        q[0] = tmpq0 / norm;
-        q[1] = tmpq1 / norm;
-        q[2] = tmpq2 / norm;
-        q[3] = tmpq3 / norm;
-
-    /** Rotate the covariance, since we've rotated the body
+        /** Rotate the covariance, since we've rotated the body
         *
         * This comes from a second order approximation to:
         * Sigma_post = exps(-d) Sigma_pre exps(-d)'
@@ -352,18 +320,7 @@ void Kalman::Finalize() {
         Pm = tmpNN2m * tmpNN1m;
     }
 
-    // convert the new attitude to a rotation matrix, such that we can rotate body-frame velocity and acc
-    R[0][0] = q[0] * q[0] + q[1] * q[1] - q[2] * q[2] - q[3] * q[3];
-    R[0][1] = 2 * q[1] * q[2] - 2 * q[0] * q[3];
-    R[0][2] = 2 * q[1] * q[3] + 2 * q[0] * q[2];
-
-    R[1][0] = 2 * q[1] * q[2] + 2 * q[0] * q[3];
-    R[1][1] = q[0] * q[0] - q[1] * q[1] + q[2] * q[2] - q[3] * q[3];
-    R[1][2] = 2 * q[2] * q[3] - 2 * q[0] * q[1];
-
-    R[2][0] = 2 * q[1] * q[3] - 2 * q[0] * q[2];
-    R[2][1] = 2 * q[2] * q[3] + 2 * q[0] * q[1];
-    R[2][2] = q[0] * q[0] - q[1] * q[1] - q[2] * q[2] + q[3] * q[3];
+    _UpdateRotationMatrix();
 
     // reset the attitude error
     S[KC_STATE_D0] = 0;
@@ -371,10 +328,64 @@ void Kalman::Finalize() {
     S[KC_STATE_D2] = 0;
 
     // enforce symmetry of the covariance matrix, and ensure the values stay bounded
-    capCovariance();
+    _CapCovariance();
 }
 
-void Kalman::capCovariance() {
+void Kalman::_DeltaGyro2Quaternion(float d0, float d1, float d2) {
+    float angle = sqrtf(d0 * d0 + d1 * d1 + d2 * d2);
+    float ca = cosf(angle / 2.0f);
+    float sa_angle;
+    if (angle < EPSILON) {
+        sa_angle = 1.0f;
+    } else {
+        sa_angle = sinf(angle / 2.0f) / angle;
+    }
+    float dq[4] = {ca, sa_angle * d0, sa_angle * d1, sa_angle * d2};
+
+    // rotate the quad's attitude by the delta quaternion vector computed above
+    float tmpQ0 = dq[0] * q[0] - dq[1] * q[1] - dq[2] * q[2] - dq[3] * q[3];
+    float tmpQ1 = dq[1] * q[0] + dq[0] * q[1] + dq[3] * q[2] - dq[2] * q[3];
+    float tmpQ2 = dq[2] * q[0] - dq[3] * q[1] + dq[0] * q[2] + dq[1] * q[3];
+    float tmpQ3 = dq[3] * q[0] + dq[2] * q[1] - dq[1] * q[2] + dq[0] * q[3];
+
+    /* This reversion would cause yaw estimation diminish to zero */
+    // if (!isFlying) {
+    //     float keep = 1.0f - ROLLPITCH_ZERO_REVERSION;
+    
+    //     // Extract yaw from the current quaternion
+    //     float yaw = atan2f(2.0f * (tmpq0 * tmpq3 + tmpq1 * tmpq2),
+    //                        1.0f - 2.0f * (tmpq2 * tmpq2 + tmpq3 * tmpq3));
+    
+    //     // Reset roll and pitch while preserving yaw
+    //     tmpq0 = keep * tmpq0 + ROLLPITCH_ZERO_REVERSION * cosf(yaw / 2.0f);
+    //     tmpq1 = keep * tmpq1;
+    //     tmpq2 = keep * tmpq2;
+    //     tmpq3 = keep * tmpq3 + ROLLPITCH_ZERO_REVERSION * sinf(yaw / 2.0f);
+    // }
+
+    // normalize and store the result
+    float norm = sqrtf(tmpQ0 * tmpQ0 + tmpQ1 * tmpQ1 + tmpQ2 * tmpQ2 + tmpQ3 * tmpQ3);
+    q[0] = tmpQ0 / norm;
+    q[1] = tmpQ1 / norm;
+    q[2] = tmpQ2 / norm;
+    q[3] = tmpQ3 / norm;
+}
+
+void Kalman::_UpdateRotationMatrix() {
+    R[0][0] = 1.0 - 2 * (q[2] * q[2] + q[3] * q[3]);
+    R[0][1] = 2 * q[1] * q[2] - 2 * q[0] * q[3];
+    R[0][2] = 2 * q[1] * q[3] + 2 * q[0] * q[2];
+
+    R[1][0] = 2 * q[1] * q[2] + 2 * q[0] * q[3];
+    R[1][1] = 1.0 - 2 * (q[1] * q[1] + q[3] * q[3]);
+    R[1][2] = 2 * q[2] * q[3] - 2 * q[0] * q[1];
+
+    R[2][0] = 2 * q[1] * q[3] - 2 * q[0] * q[2];
+    R[2][1] = 2 * q[2] * q[3] + 2 * q[0] * q[1];
+    R[2][2] = 1.0 - 2 * (q[1] * q[1] + q[2] * q[2]);
+}
+
+void Kalman::_CapCovariance() {
     for (int i = 0; i < KC_STATE_DIM; i++) {
         for (int j = i; j < KC_STATE_DIM; j++) {
             float p = 0.5f * P[i][j] + 0.5f * P[j][i];
@@ -450,21 +461,11 @@ void Kalman::ScalarUpdate(dspm::Mat *Hm, float error, float stdMeasNoise) {
         S[i] += K(i, 0) * error;
     }
 
-    dspm::Mat tmpNN1m = K * (*Hm) - dspm::Mat::eye(KC_STATE_DIM);
-    Pm = (tmpNN1m * Pm) * tmpNN1m.t();
-    
-    for (int i = 0; i < KC_STATE_DIM; i++) {
-        for (int j = i; j < KC_STATE_DIM; j++) {
-            float v = K(i, 0) * R * K(j, 0);
-            float p = 0.5f * P[i][j] + 0.5f * P[j][i] + v;
-            if (isnan(p) || p > MAX_COVARIANCE)
-                P[i][j] = P[j][i] = MAX_COVARIANCE;
-            else if (i == j && p < MIN_COVARIANCE)
-                P[i][j] = P[j][i] = MIN_COVARIANCE;
-            else
-                P[i][j] = P[j][i] = p;
-        }
-    }
+    // Pm = (I - K * H) * Pm * (I - K * H)^T + K * R * K^T
+    dspm::Mat I_KH = dspm::Mat::eye(KC_STATE_DIM) - K * (*Hm);;
+    Pm = I_KH * Pm * I_KH.t() + (K * R) * K.t();
+
+    _CapCovariance();
 }
 
 bool Kalman::CheckBounds() {
@@ -677,9 +678,10 @@ void Kalman::UpdateWithPKE(dspm::Mat *Hm, dspm::Mat *Kwm, dspm::Mat *P_w_m, floa
     dspm::Mat tmpNN1m = (*Kwm) * ((*Hm) * -1.0f) + dspm::Mat::eye(KC_STATE_DIM);
     this->Pm = tmpNN1m * (*P_w_m); // Ppo = (I - K * H) * P
 
-    capCovariance();
+    _CapCovariance();
 }
 
+static int count = 0;
 void Kalman::TdoaUpdate(estimatorPacket_t *packet) {
     float x = S[KC_STATE_X];
     float y = S[KC_STATE_Y];
@@ -690,12 +692,19 @@ void Kalman::TdoaUpdate(estimatorPacket_t *packet) {
 
     float dx0 = x - x0, dy0 = y - y0, dz0 = z - z0;
     float dx1 = x - x1, dy1 = y - y1, dz1 = z - z1;
-
+    
     float d0 = sqrtf(powf(dx0, 2) + powf(dy0, 2) + powf(dz0, 2));
     float d1 = sqrtf(powf(dx1, 2) + powf(dy1, 2) + powf(dz1, 2));
-    float predicted = d1 - d0;
+    float predicted = d0 - d1;
     float measurement = packet->tdoa.distanceDiff;
     float error = measurement - predicted;
+
+    if (count++ % 20 == 0) {
+        printf("TDOA anchors: A[%d](%.2f %.2f %.2f), B[%d](%.2f %.2f %.2f), diff=%.3f, pred=%.3f, error=%.3f\n",
+            packet->tdoa.anchorIdA, x0, y0, z0,
+            packet->tdoa.anchorIdB, x1, y1, z1,
+            measurement, predicted, error);
+    }
 
     dspm::Mat Hm = dspm::Mat(1, KC_STATE_DIM);
 

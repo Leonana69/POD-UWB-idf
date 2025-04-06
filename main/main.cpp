@@ -17,8 +17,8 @@ extern "C" void app_main();
 void app_main() {
     printf("System Starting...\n");
     buttonInit();
-    wifiInit(-1);
-    wifiLinkInit();
+    // wifiInit(-1);
+    // wifiLinkInit();
     imuInit();
     estimatorInit();
     dw1000_init();

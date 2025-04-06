@@ -84,8 +84,12 @@ private:
     float R[3][3];        // The quad's attitude as a rotation matrix (used by the prediction, updated by the finalization)
     float P[KC_STATE_DIM][KC_STATE_DIM]; // The covariance matrix, estimate uncertainty
     dspm::Mat Pm;         // The covariance matrix, estimate uncertainty
+
+    void _CapCovariance();
+    void _UpdateRotationMatrix();
+    void _DeltaGyro2Quaternion(float d0, float d1, float d2);
 public:
-    Kalman();
+    Kalman(vec3f_t initialAccel = {0, 0, 1});
     ~Kalman();
 
     float *GetState() { return S; }
@@ -98,7 +102,6 @@ public:
     void UpdateWithPKE(dspm::Mat *Hm, dspm::Mat *Kwm, dspm::Mat *P_w_m, float error);
 
     bool CheckBounds();
-    void capCovariance();
 
     void RobustTdoaUpdate(estimatorPacket_t *packet);
     void TdoaUpdate(estimatorPacket_t *packet);

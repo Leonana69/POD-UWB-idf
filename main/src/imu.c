@@ -106,7 +106,7 @@ static int8_t spiRead(uint8_t reg_addr, uint8_t *data, uint32_t len, void *intf_
     return ret;
 }
 
-void sensorsDelayUs(uint32_t period, void *intf_ptr) {
+static void sensorsDelayUs(uint32_t period, void *intf_ptr) {
     if (period < 20) {
         esp_rom_delay_us(period);
         return;
@@ -115,12 +115,21 @@ void sensorsDelayUs(uint32_t period, void *intf_ptr) {
 }
 
 static vec3f_t gyroBias;
-static vec3f_t accelBias;
+static vec3f_t initial_accel;
 static float accelScale;
-bool imuCalibration() {
-    const int caliNbr = 256;
+
+static bool isInit = false;
+vec3f_t getInitialAccel() {
+    while (!isInit) {
+        vTaskDelay(5);
+    }
+    return initial_accel;
+}
+
+static bool imuCalibration() {
+    const int caliNbr = 512;
     gyroBias = (vec3f_t){ 0 };
-    accelBias = (vec3f_t){ 0 };
+    initial_accel = (vec3f_t){ 0 };
     vec3f_t gyroBiasSquared = (vec3f_t){ 0 };
     accelScale = 0;
     
@@ -131,9 +140,9 @@ bool imuCalibration() {
         float ax = bmi270Data[ACCEL].sens_data.acc.x;
         float ay = bmi270Data[ACCEL].sens_data.acc.y;
         float az = bmi270Data[ACCEL].sens_data.acc.z;
-        accelBias.x += ax;
-        accelBias.y += ay;
-        accelBias.z += az;
+        initial_accel.x += ax;
+        initial_accel.y += ay;
+        initial_accel.z += az;
 
         float gx = bmi270Data[GYRO].sens_data.gyr.x;
         float gy = bmi270Data[GYRO].sens_data.gyr.y;
@@ -148,13 +157,15 @@ bool imuCalibration() {
         vTaskDelay(1);
     }
 
-    accelBias.x /= caliNbr;
-    accelBias.y /= caliNbr;
-    accelBias.z /= caliNbr;
-    accelScale = sqrtf(accelBias.x * accelBias.x + 
-                        accelBias.y * accelBias.y + 
-                        accelBias.z * accelBias.z);
-    accelBias.z -= accelScale;
+    initial_accel.x /= caliNbr;
+    initial_accel.y /= caliNbr;
+    initial_accel.z /= caliNbr;
+    accelScale = sqrtf(initial_accel.x * initial_accel.x + 
+                        initial_accel.y * initial_accel.y + 
+                        initial_accel.z * initial_accel.z);
+    initial_accel.x /= accelValue2Gravity;
+    initial_accel.y /= accelValue2Gravity;
+    initial_accel.z /= accelValue2Gravity;
 
     gyroBias.x /= caliNbr;
     gyroBias.y /= caliNbr;
@@ -167,6 +178,7 @@ bool imuCalibration() {
      && gyroBiasSquared.y < gyroBiasLimit
      && gyroBiasSquared.z < gyroBiasLimit) {
         printf("IMU Calibration [OK]");
+        isInit = true;
         return true;
     } else {
         printf("IMU Calibration [FAILED]");
@@ -209,7 +221,6 @@ void imuTask(void *argument) {
 
         packet.imu = imuBuffer;
         estimatorKalmanEnqueue(&packet);
-        // STATIC_SEMAPHORE_RELEASE(imuDataReady);
 
         // if (count++ % 250 == 0) {
         //     printf("IMU: %.3f, %.3f, %.3f | %.3f, %.3f, %.3f\n", 

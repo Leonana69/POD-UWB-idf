@@ -5,20 +5,57 @@
 #include "freertos/task.h"
 #include "estimator.h"
 
-static tdoaAnchorInfo_t anchorInfoArray[LOCODECK_NR_OF_TDOA2_ANCHORS];
+/* simulation, tag position is [0.2, 1.4, 0.3] in a 3x3x3 room */
+typedef struct {
+    uint8_t idA;
+    uint8_t idB;
+    float dist_diff;
+} simulation_data_t;
 
+static int data_index = 0;
+static simulation_data_t sim_data[] = {
+    { idA: 0, idB: 1, dist_diff: -2.989},
+    { idA: 0, idB: 2, dist_diff: -2.989},
+    { idA: 0, idB: 3, dist_diff: -2.989},
+    { idA: 0, idB: 4, dist_diff: -5.148},
+    { idA: 0, idB: 5, dist_diff: -5.148},
+    { idA: 0, idB: 6, dist_diff: -5.148},
+    { idA: 0, idB: 7, dist_diff: -6.928},
+    { idA: 1, idB: 2, dist_diff: 0.000},
+    { idA: 1, idB: 3, dist_diff: 0.000},
+    { idA: 1, idB: 4, dist_diff: -2.159},
+    { idA: 1, idB: 5, dist_diff: -2.159},
+    { idA: 1, idB: 6, dist_diff: -2.159},
+    { idA: 1, idB: 7, dist_diff: -3.939},
+    { idA: 2, idB: 3, dist_diff: 0.000},
+    { idA: 2, idB: 4, dist_diff: -2.159},
+    { idA: 2, idB: 5, dist_diff: -2.159},
+    { idA: 2, idB: 6, dist_diff: -2.159},
+    { idA: 2, idB: 7, dist_diff: -3.939},
+    { idA: 3, idB: 4, dist_diff: -2.159},
+    { idA: 3, idB: 5, dist_diff: -2.159},
+    { idA: 3, idB: 6, dist_diff: -2.159},
+    { idA: 3, idB: 7, dist_diff: -3.939},
+    { idA: 4, idB: 5, dist_diff: 0.000},
+    { idA: 4, idB: 6, dist_diff: 0.000},
+    { idA: 4, idB: 7, dist_diff: -1.780},
+    { idA: 5, idB: 6, dist_diff: 0.000},
+    { idA: 5, idB: 7, dist_diff: -1.780},
+    { idA: 6, idB: 7, dist_diff: -1.780},
+};
+
+static tdoaAnchorInfo_t anchorInfoArray[LOCODECK_NR_OF_TDOA2_ANCHORS];
 static bool getAnchorPosition(const uint8_t anchorId, point_t* position) {
     // Example: Retrieve from a predefined array (replace with actual data)
     const point_t anchorPositions[] = {
-        {x: 0.0, y: 0.0, z: 0.0},   // Anchor 0
-        {x: 2.0, y: 0.0, z: 0.0},   // Anchor 1
-        {x: 1.0, y: 0.0, z: 0.0},   // Anchor 2
-        {x: 1.0, y: 0.0, z: 0.0},   // Anchor 3
-        {x: 1.0, y: 0.0, z: 0.0},   // Anchor 4
-        {x: 1.0, y: 0.0, z: 0.0},   // Anchor 5
-        {x: 1.0, y: 0.0, z: 0.0},   // Anchor 6
-        {x: 1.0, y: 0.0, z: 0.0},   // Anchor 7
-        // ... Add other anchor positions
+        { x: 0.0f, y: 0.0f, z: 0.0f },
+        { x: 10.0f, y: 0.0f, z: 0.0f },
+        { x: 0.0f, y: 10.0f, z: 0.0f },
+        { x: 0.0f, y: 0.0f, z: 10.0f },
+        { x: 10.0f, y: 10.0f, z: 0.0f },
+        { x: 10.0f, y: 0.0f, z: 10.0f },
+        { x: 0.0f, y: 10.0f, z: 10.0f },
+        { x: 10.0f, y: 10.0f, z: 10.0f }
     };
     if (anchorId < LOCODECK_NR_OF_TDOA2_ANCHORS) {
         *position = anchorPositions[anchorId];
@@ -49,6 +86,21 @@ static uint64_t _trunc(uint64_t value) {
 }
 
 static void rxCallback(dwDevice_t *dev) {
+    // send simulated data
+    estimatorPacket_t sim_packet;
+    sim_packet.type = ESTIMATOR_TYPE_UWB;
+    simulation_data_t *simData = &sim_data[data_index];
+    data_index = (data_index + 1) % (sizeof(sim_data) / sizeof(simulation_data_t));
+    sim_packet.tdoa.distanceDiff = simData->dist_diff;
+    sim_packet.tdoa.stdDev = 0.01;
+
+    sim_packet.tdoa.anchorIds[0] = simData->idA;
+    sim_packet.tdoa.anchorIds[1] = simData->idB;
+    getAnchorPosition(simData->idA, &sim_packet.tdoa.anchorPositions[0]);
+    getAnchorPosition(simData->idB, &sim_packet.tdoa.anchorPositions[1]);
+    estimatorKalmanEnqueue(&sim_packet);
+    return;
+
     static int debug_count = 0;
 
     int dataLength = dwGetDataLength(dev);
