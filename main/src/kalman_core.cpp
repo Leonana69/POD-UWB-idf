@@ -11,16 +11,16 @@
 
 // Initial variances, uncertain of position, but know we're stationary
 static const float initStdDevPos_xy = 100;
-static const float initStdDevPos_z = 100;
+static const float initStdDevPos_z = 1;
 static const float initStdDevVel_xyz = 0.01;
 static const float initStdDevAtt_rpy = 0.01;
 
 static float procNoiseAcc_xy = 0.5f;
 static float procNoiseAcc_z = 0.5f;
-static float procNoiseVel = 0.0f;
-static float procNoisePos = 0.0f;
-static float procNoiseAtt = 0.0f;
-static float measNoiseGyr_rpy = 0.1f; // radians per second
+static float procNoiseVel = 0.1f;       // ← increased
+static float procNoisePos = 0.01f;      // ← small but nonzero
+static float procNoiseAtt = 0.001f;     // ← attitude drift
+static float measNoiseGyr_rpy = 0.1f;
 // static float measNoiseGyr_rpy = 0.000041f;  // in rad/s
 // static float measNoiseAccel_xy       = 0.00047f;   // in m/s²
 // static float measNoiseAccel_z        = 0.00047f;   // in m/s²
@@ -681,7 +681,6 @@ void Kalman::UpdateWithPKE(dspm::Mat *Hm, dspm::Mat *Kwm, dspm::Mat *P_w_m, floa
     _CapCovariance();
 }
 
-static int count = 0;
 void Kalman::TdoaUpdate(estimatorPacket_t *packet) {
     float x = S[KC_STATE_X];
     float y = S[KC_STATE_Y];
@@ -698,13 +697,6 @@ void Kalman::TdoaUpdate(estimatorPacket_t *packet) {
     float predicted = d0 - d1;
     float measurement = packet->tdoa.distanceDiff;
     float error = measurement - predicted;
-
-    if (count++ % 20 == 0) {
-        printf("TDOA anchors: A[%d](%.2f %.2f %.2f), B[%d](%.2f %.2f %.2f), diff=%.3f, pred=%.3f, error=%.3f\n",
-            packet->tdoa.anchorIdA, x0, y0, z0,
-            packet->tdoa.anchorIdB, x1, y1, z1,
-            measurement, predicted, error);
-    }
 
     dspm::Mat Hm = dspm::Mat(1, KC_STATE_DIM);
 

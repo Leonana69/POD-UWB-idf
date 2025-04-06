@@ -4,6 +4,7 @@
 #include "esp_timer.h"
 #include "utils.h"
 #include "imu.h"
+#include <string.h>
 
 #define ESTIMATOR_TASK_RATE RATE_1000_HZ
 #define ESTIMATOR_PREDICTION_RATE RATE_100_HZ
@@ -17,14 +18,35 @@ static imu_t latestImu;
 
 static imu_t imuAccumulator;
 static uint32_t imuCount = 0;
-static int64_t lastImuPrediction;
+static int64_t lastImuPredictTime;
+static int64_t lastAddNoiseTime;
 
 static int count = 0;
 
 bool processDataQueue() {
     estimatorPacket_t packet;
     bool update = false;
-    
+
+    int64_t currentTime = esp_timer_get_time();
+    int64_t dt = currentTime - lastImuPredictTime;
+    if (imuCount > 0 && dt >= 1000000 / ESTIMATOR_PREDICTION_RATE) {
+        for (int i = 0; i < 3; i++) {
+            imuAccumulator.gyro.v[i] = radians(imuAccumulator.gyro.v[i] / imuCount);
+            imuAccumulator.accel.v[i] = imuAccumulator.accel.v[i] * GRAVITY_EARTH / imuCount;
+        }
+
+        kalmanCore.Predict(&imuAccumulator, dt / 1e6f, false);
+
+        imuCount = 0;
+        memset(&imuAccumulator, 0, sizeof(imu_t));
+        lastImuPredictTime = currentTime;
+        update = true;
+    }
+
+    currentTime = esp_timer_get_time();
+    kalmanCore.AddProcessNoise((currentTime - lastAddNoiseTime) / 1e6f);
+    lastAddNoiseTime = currentTime;
+
     while (STATIC_QUEUE_RECEIVE(estimatorDataQueue, &packet, 0) == pdTRUE) {
         switch (packet.type) {
             case ESTIMATOR_TYPE_IMU:
@@ -36,56 +58,26 @@ bool processDataQueue() {
                 imuCount++;
                 break;
             case ESTIMATOR_TYPE_UWB:
-                // kalmanCore.TdoaUpdate(&packet);
-                // update = true;
+                kalmanCore.TdoaUpdate(&packet);
+                update = true;
                 break;
             default:
                 break;
         }
     }
 
-    int64_t currentTime = esp_timer_get_time();
-    int64_t dt = currentTime - lastImuPrediction;
-    if (imuCount > 0 && dt >= 1000000 / ESTIMATOR_PREDICTION_RATE) {
-        for (int i = 0; i < 3; i++) {
-            imuAccumulator.gyro.v[i] = radians(imuAccumulator.gyro.v[i] / imuCount);
-            imuAccumulator.accel.v[i] = imuAccumulator.accel.v[i] * GRAVITY_EARTH / imuCount;
-        }
-
-        kalmanCore.Predict(&imuAccumulator, dt / 1000000.0f, false);
-
-        imuCount = 0;
-        imuAccumulator = imu_t();
-        lastImuPrediction = currentTime;
-        update = true;
-    }
-
     return update;
-}
-
-void estimatorKalmanGetState(state_t *state) {
-    STATIC_MUTEX_LOCK(estimatorDataMutex, portMAX_DELAY);
-    *state = stateData;
-    STATIC_MUTEX_UNLOCK(estimatorDataMutex);
-}
-
-void estimatorKalmanEnqueue(estimatorPacket_t *packet) {
-    STATIC_QUEUE_SEND(estimatorDataQueue, packet, 0);
 }
 
 void estimatorKalmanTask(void *argument) {
     kalmanCore = Kalman(getInitialAccel());
 
     TASK_TIMER_DEF(ESTIMATOR, ESTIMATOR_TASK_RATE);
-    int64_t lastAddNoiseTime = lastImuPrediction = esp_timer_get_time();
+    lastAddNoiseTime = lastImuPredictTime = esp_timer_get_time();
     bool update;
     while (1) {
         TASK_TIMER_WAIT(ESTIMATOR);
         update = processDataQueue();
-
-        int64_t currentTime = esp_timer_get_time();
-        kalmanCore.AddProcessNoise((currentTime - lastAddNoiseTime) / 1e6f);
-        lastAddNoiseTime = currentTime;
         
         if (update) {
             kalmanCore.Finalize();
@@ -111,6 +103,16 @@ void estimatorKalmanTask(void *argument) {
         }
         count++;
     }
+}
+
+void estimatorKalmanGetState(state_t *state) {
+    STATIC_MUTEX_LOCK(estimatorDataMutex, portMAX_DELAY);
+    *state = stateData;
+    STATIC_MUTEX_UNLOCK(estimatorDataMutex);
+}
+
+void estimatorKalmanEnqueue(estimatorPacket_t *packet) {
+    STATIC_QUEUE_SEND(estimatorDataQueue, packet, 0);
 }
 
 void estimatorInit() {
