@@ -48,14 +48,14 @@ static tdoaAnchorInfo_t anchorInfoArray[LOCODECK_NR_OF_TDOA2_ANCHORS];
 static bool getAnchorPosition(const uint8_t anchorId, point_t* position) {
     // Example: Retrieve from a predefined array (replace with actual data)
     const point_t anchorPositions[] = {
+        { x: 1.32f, y: -2.92f, z: 0.0f },
         { x: 0.0f, y: 0.0f, z: 0.0f },
-        { x: 10.0f, y: 0.0f, z: 0.0f },
-        { x: 0.0f, y: 10.0f, z: 0.0f },
-        { x: 0.0f, y: 0.0f, z: 10.0f },
-        { x: 10.0f, y: 10.0f, z: 0.0f },
-        { x: 10.0f, y: 0.0f, z: 10.0f },
-        { x: 0.0f, y: 10.0f, z: 10.0f },
-        { x: 10.0f, y: 10.0f, z: 10.0f }
+        { x: 5.10f, y: -2.92f, z: 0.0f },
+        { x: 3.60f, y: 0.0f, z: 0.0f },
+        { x: 3.50f, y: -2.92f, z: 1.0f },
+        { x: 5.10f, y: 0.0f, z: 0.0f },
+        { x: 0.0f, y: 0.0f, z: 0.0f },
+        { x: 0.0f, y: 0.0f, z: 0.0f }
     };
     if (anchorId < LOCODECK_NR_OF_TDOA2_ANCHORS) {
         *position = anchorPositions[anchorId];
@@ -236,6 +236,7 @@ static void rxCallback(dwDevice_t *dev) {
                         packet.tdoa.anchorIds[1] = otherAnchorCtx.anchorInfo->id;
                         packet.tdoa.anchorPositions[0] = anchorCtx.anchorInfo->position;
                         packet.tdoa.anchorPositions[1] = otherAnchorCtx.anchorInfo->position;
+                        // printf("%d -> %d: %.3f\n", anchorCtx.anchorInfo->id, otherAnchorCtx.anchorInfo->id, distance);
                         estimatorKalmanEnqueue(&packet);
                     }
                 }
