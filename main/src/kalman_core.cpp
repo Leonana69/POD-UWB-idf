@@ -31,9 +31,9 @@ Kalman::Kalman(vec3f_t initialAccel) {
     memset(R, 0, sizeof(R));
     memset(P, 0, sizeof(P));
 
-    S[KC_STATE_X] = 2.0f; // x
-    S[KC_STATE_Y] = -1.5f; // y
-    S[KC_STATE_Z] = 0.0f; // z
+    S[KC_STATE_X] = 1.0f; // x
+    S[KC_STATE_Y] = 1.0f; // y
+    S[KC_STATE_Z] = 1.0f; // z
 
     // Initialize the rotation matrix and quaternion
     float ax = initialAccel.x;
@@ -702,9 +702,9 @@ void Kalman::TdoaUpdate(estimatorPacket_t *packet) {
 
     if (d0 != 0.0f && d1 != 0.0f) {
         // measurement Jacobian
-        Hm(0, KC_STATE_X) = (dx1 / d1 - dx0 / d0);
-        Hm(0, KC_STATE_Y) = (dy1 / d1 - dy0 / d0);
-        Hm(0, KC_STATE_Z) = (dz1 / d1 - dz0 / d0);
+        Hm(0, KC_STATE_X) = dx0 / d0 - dx1 / d1;
+        Hm(0, KC_STATE_Y) = dy0 / d0 - dy1 / d1;
+        Hm(0, KC_STATE_Z) = dz0 / d0 - dz1 / d1;
 
         // update the Kalman filter with the new measurement
         ScalarUpdate(&Hm, error, packet->tdoa.stdDev);

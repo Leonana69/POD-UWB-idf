@@ -94,13 +94,13 @@ void estimatorKalmanTask(void *argument) {
         kalmanCore.ExternalizeState(&stateData, &latestImu.accel);
         STATIC_MUTEX_UNLOCK(estimatorDataMutex);
 
-        // if (count % 250 == 0) {
-        //     float *S = kalmanCore.GetState();
-        //     printf("Kalman Core: P(%.3f %.3f %.3f), V(%.3f %.3f %.3f), A(%.3f %.3f %.3f)\n",
-        //         S[0], S[1], S[2],
-        //         S[3], S[4], S[5],
-        //         stateData.attitude.roll, stateData.attitude.pitch, stateData.attitude.yaw);
-        // }
+        if (count % 250 == 0) {
+            float *S = kalmanCore.GetState();
+            printf("Kalman Core: P(%.3f %.3f %.3f), V(%.3f %.3f %.3f), A(%.3f %.3f %.3f)\n",
+                S[0], S[1], S[2],
+                S[3], S[4], S[5],
+                stateData.attitude.roll, stateData.attitude.pitch, stateData.attitude.yaw);
+        }
         count++;
     }
 }
