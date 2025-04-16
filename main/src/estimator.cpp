@@ -35,10 +35,6 @@ bool processDataQueue() {
             imuAccumulator.accel.v[i] = imuAccumulator.accel.v[i] * GRAVITY_EARTH / (float) imuCount;
         }
 
-        // printf("(%.3f, %.3f, %.3f) (%.3f, %.3f, %.3f), %ld\n",
-        //     imuAccumulator.accel.x, imuAccumulator.accel.y, imuAccumulator.accel.z,
-        //     imuAccumulator.gyro.x, imuAccumulator.gyro.y, imuAccumulator.gyro.z, imuCount);
-
         kalmanCore.Predict(&imuAccumulator, dt / 1e6f, false);
 
         imuCount = 0;

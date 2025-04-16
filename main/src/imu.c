@@ -69,8 +69,8 @@ static void init_spi() {
     }
 }
 
-static uint8_t spiTxBuffer[196];
-static uint8_t spiRxBuffer[196];
+static uint8_t spiTxBuffer[512];
+static uint8_t spiRxBuffer[512];
 static int8_t spiWrite(uint8_t reg_addr, const uint8_t *data, uint32_t len, void *intf_ptr) {
     spi_transaction_t t;
     memset(&t, 0, sizeof(t));
@@ -204,22 +204,47 @@ void imuTask(void *argument) {
     while (!imuCalibration());
     TASK_TIMER_DEF(IMU, IMU_TASK_RATE);
     
-    int count = 0;
     while (1) {
         TASK_TIMER_WAIT(IMU);
+        memset(&imuBuffer, 0, sizeof(imu_t));
         bmi2_get_sensor_data(&bmi270Data[ACCEL], 1, &bmi2Dev);
-		bmi2_get_sensor_data(&bmi270Data[GYRO], 1, &bmi2Dev);
-        
         imuBuffer.accel.x = (bmi270Data[ACCEL].sens_data.acc.x) / accelScale;
         imuBuffer.accel.y = (bmi270Data[ACCEL].sens_data.acc.y) / accelScale;
         imuBuffer.accel.z = (bmi270Data[ACCEL].sens_data.acc.z) / accelScale;
 
+		bmi2_get_sensor_data(&bmi270Data[GYRO], 1, &bmi2Dev);
         imuBuffer.gyro.x = (bmi270Data[GYRO].sens_data.gyr.x - gyroBias.x) * gyroValue2Degree;
         imuBuffer.gyro.y = (bmi270Data[GYRO].sens_data.gyr.y - gyroBias.y) * gyroValue2Degree;
         imuBuffer.gyro.z = (bmi270Data[GYRO].sens_data.gyr.z - gyroBias.z) * gyroValue2Degree;
 
-        // applyLpf(lpf2pAccel, &imuBuffer.accel);
-        // applyLpf(lpf2pGyro, &imuBuffer.gyro);
+        if (imuBuffer.accel.x > 10.0f
+        || imuBuffer.accel.y > 10.0f
+        || imuBuffer.accel.z > 10.0f
+        || imuBuffer.accel.x < -10.0f
+        || imuBuffer.accel.y < -10.0f
+        || imuBuffer.accel.z < -10.0f
+        || imuBuffer.gyro.x > 2000.0f
+        || imuBuffer.gyro.y > 2000.0f
+        || imuBuffer.gyro.z > 2000.0f
+        || imuBuffer.gyro.x < -2000.0f
+        || imuBuffer.gyro.y < -2000.0f
+        || imuBuffer.gyro.z < -2000.0f) {
+        
+            printf("🚨 Triggered due to:\n");
+            if (imuBuffer.accel.x > 50.0f) printf("X > 50: %.4f\n", imuBuffer.accel.x);
+            if (imuBuffer.accel.y > 50.0f) printf("Y > 50: %.4f\n", imuBuffer.accel.y);
+            if (imuBuffer.accel.z > 50.0f) printf("Z > 50: %.4f\n", imuBuffer.accel.z);
+            if (imuBuffer.accel.x < -50.0f) printf("X < -50: %.4f\n", imuBuffer.accel.x);
+            if (imuBuffer.accel.y < -50.0f) printf("Y < -50: %.4f\n", imuBuffer.accel.y);
+            if (imuBuffer.accel.z < -50.0f) printf("Z < -50: %.4f\n", imuBuffer.accel.z);
+        
+            printf("Full accel: %.4f, %.4f, %.4f | gyro: %.4f, %.4f, %.4f\n",
+                imuBuffer.accel.x, imuBuffer.accel.y, imuBuffer.accel.z,
+                imuBuffer.gyro.x, imuBuffer.gyro.y, imuBuffer.gyro.z);
+        }
+
+        applyLpf(lpf2pAccel, &imuBuffer.accel);
+        applyLpf(lpf2pGyro, &imuBuffer.gyro);
 
         STATIC_MUTEX_LOCK(imuDataMutex, portMAX_DELAY);
         imuData = imuBuffer;
@@ -294,5 +319,5 @@ void imuInit() {
         lpf2pInit(&lpf2pGyro[i], 1000, 50);
     }
 
-    xTaskCreatePinnedToCore(imuTask, "imu_task", 4096, NULL, 2, NULL, 1);
+    xTaskCreatePinnedToCore(imuTask, "imu_task", 8192, NULL, 2, NULL, 1);
 }
