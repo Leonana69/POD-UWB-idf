@@ -230,7 +230,7 @@ static void rxCallback(dwDevice_t *dev) {
                         estimatorPacket_t packet;
                         packet.type = ESTIMATOR_TYPE_UWB;
                         packet.tdoa.distanceDiff = distance;
-                        packet.tdoa.stdDev = 0.25f;
+                        packet.tdoa.stdDev = 0.15f;
 
                         packet.tdoa.anchorIds[0] = anchorCtx.anchorInfo->id;
                         packet.tdoa.anchorIds[1] = otherAnchorCtx.anchorInfo->id;

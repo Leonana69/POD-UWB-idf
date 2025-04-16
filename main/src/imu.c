@@ -127,7 +127,8 @@ vec3f_t getInitialAccel() {
 }
 
 static bool imuCalibration() {
-    const int caliNbr = 512;
+    int caliNbr = 256;
+    int skip = 0;
     gyroBias = (vec3f_t){ 0 };
     initial_accel = (vec3f_t){ 0 };
     vec3f_t gyroBiasSquared = (vec3f_t){ 0 };
@@ -137,12 +138,22 @@ static bool imuCalibration() {
         bmi2_get_sensor_data(&bmi270Data[ACCEL], 1, &bmi2Dev);
 		bmi2_get_sensor_data(&bmi270Data[GYRO], 1, &bmi2Dev);
 
+        if (bmi270Data[ACCEL].sens_data.acc.x == 0
+         && bmi270Data[ACCEL].sens_data.acc.y == 0
+         && bmi270Data[ACCEL].sens_data.acc.z == 0) {
+            skip++;
+            vTaskDelay(1);
+            continue;
+        }
+
         float ax = bmi270Data[ACCEL].sens_data.acc.x;
         float ay = bmi270Data[ACCEL].sens_data.acc.y;
         float az = bmi270Data[ACCEL].sens_data.acc.z;
         initial_accel.x += ax;
         initial_accel.y += ay;
         initial_accel.z += az;
+
+        accelScale += sqrtf(ax * ax + ay * ay + az * az);
 
         float gx = bmi270Data[GYRO].sens_data.gyr.x;
         float gy = bmi270Data[GYRO].sens_data.gyr.y;
@@ -157,15 +168,14 @@ static bool imuCalibration() {
         vTaskDelay(1);
     }
 
+    caliNbr -= skip;
     initial_accel.x /= caliNbr;
     initial_accel.y /= caliNbr;
     initial_accel.z /= caliNbr;
-    accelScale = sqrtf(initial_accel.x * initial_accel.x + 
-                        initial_accel.y * initial_accel.y + 
-                        initial_accel.z * initial_accel.z);
     initial_accel.x /= accelValue2Gravity;
     initial_accel.y /= accelValue2Gravity;
     initial_accel.z /= accelValue2Gravity;
+    accelScale /= caliNbr;
 
     gyroBias.x /= caliNbr;
     gyroBias.y /= caliNbr;
@@ -200,10 +210,6 @@ void imuTask(void *argument) {
         bmi2_get_sensor_data(&bmi270Data[ACCEL], 1, &bmi2Dev);
 		bmi2_get_sensor_data(&bmi270Data[GYRO], 1, &bmi2Dev);
         
-        // imuBuffer.accel.x = (bmi270Data[ACCEL].sens_data.acc.x - accelBias.x) * accelValue2Gravity;
-        // imuBuffer.accel.y = (bmi270Data[ACCEL].sens_data.acc.y - accelBias.y) * accelValue2Gravity;
-        // imuBuffer.accel.z = (bmi270Data[ACCEL].sens_data.acc.z - accelBias.z) * accelValue2Gravity;
-
         imuBuffer.accel.x = (bmi270Data[ACCEL].sens_data.acc.x) / accelScale;
         imuBuffer.accel.y = (bmi270Data[ACCEL].sens_data.acc.y) / accelScale;
         imuBuffer.accel.z = (bmi270Data[ACCEL].sens_data.acc.z) / accelScale;
@@ -212,8 +218,8 @@ void imuTask(void *argument) {
         imuBuffer.gyro.y = (bmi270Data[GYRO].sens_data.gyr.y - gyroBias.y) * gyroValue2Degree;
         imuBuffer.gyro.z = (bmi270Data[GYRO].sens_data.gyr.z - gyroBias.z) * gyroValue2Degree;
 
-        applyLpf(lpf2pAccel, &imuBuffer.accel);
-        applyLpf(lpf2pGyro, &imuBuffer.gyro);
+        // applyLpf(lpf2pAccel, &imuBuffer.accel);
+        // applyLpf(lpf2pGyro, &imuBuffer.gyro);
 
         STATIC_MUTEX_LOCK(imuDataMutex, portMAX_DELAY);
         imuData = imuBuffer;
@@ -288,5 +294,5 @@ void imuInit() {
         lpf2pInit(&lpf2pGyro[i], 1000, 50);
     }
 
-    xTaskCreatePinnedToCore(imuTask, "imu_task", 4096, NULL, 5, NULL, 1);
+    xTaskCreatePinnedToCore(imuTask, "imu_task", 4096, NULL, 2, NULL, 1);
 }

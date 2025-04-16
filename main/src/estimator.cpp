@@ -5,7 +5,7 @@
 #include "utils.h"
 #include "imu.h"
 #include <string.h>
-
+#include <math.h>
 #define ESTIMATOR_TASK_RATE RATE_1000_HZ
 #define ESTIMATOR_PREDICTION_RATE RATE_100_HZ
 
@@ -31,9 +31,13 @@ bool processDataQueue() {
     int64_t dt = currentTime - lastImuPredictTime;
     if (imuCount > 0 && dt >= 1000000 / ESTIMATOR_PREDICTION_RATE) {
         for (int i = 0; i < 3; i++) {
-            imuAccumulator.gyro.v[i] = radians(imuAccumulator.gyro.v[i] / imuCount);
-            imuAccumulator.accel.v[i] = imuAccumulator.accel.v[i] * GRAVITY_EARTH / imuCount;
+            imuAccumulator.gyro.v[i] = radians(imuAccumulator.gyro.v[i] / (float) imuCount);
+            imuAccumulator.accel.v[i] = imuAccumulator.accel.v[i] * GRAVITY_EARTH / (float) imuCount;
         }
+
+        // printf("(%.3f, %.3f, %.3f) (%.3f, %.3f, %.3f), %ld\n",
+        //     imuAccumulator.accel.x, imuAccumulator.accel.y, imuAccumulator.accel.z,
+        //     imuAccumulator.gyro.x, imuAccumulator.gyro.y, imuAccumulator.gyro.z, imuCount);
 
         kalmanCore.Predict(&imuAccumulator, dt / 1e6f, false);
 

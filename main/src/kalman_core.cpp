@@ -10,16 +10,16 @@
 #define ROLLPITCH_ZERO_REVERSION (0.001f)
 
 // Initial variances, uncertain of position, but know we're stationary
-static const float initStdDevPos_xy = 100;
-static const float initStdDevPos_z = 1;
-static const float initStdDevVel_xyz = 0.01;
-static const float initStdDevAtt_rpy = 0.01;
+const float initStdDevPos_xy = 100;
+const float initStdDevPos_z = 1;
+const float initStdDevVel_xyz = 0.01;
+const float initStdDevAtt_rpy = 0.01;
 
 static float procNoiseAcc_xy = 0.5f;
-static float procNoiseAcc_z = 0.5f;
-static float procNoiseVel = 0.1f;       // ← increased
-static float procNoisePos = 0.01f;      // ← small but nonzero
-static float procNoiseAtt = 0.001f;     // ← attitude drift
+static float procNoiseAcc_z = 1.0;
+static float procNoiseVel = 0.0f;       // ← increased
+static float procNoisePos = 0.0f;      // ← small but nonzero
+static float procNoiseAtt = 0.0f;     // ← attitude drift
 static float measNoiseGyr_rpy = 0.1f;
 // static float measNoiseGyr_rpy = 0.000041f;  // in rad/s
 // static float measNoiseAccel_xy       = 0.00047f;   // in m/s²
@@ -29,11 +29,10 @@ Kalman::Kalman(vec3f_t initialAccel) {
     memset(S, 0, sizeof(S));
     memset(q, 0, sizeof(q));
     memset(R, 0, sizeof(R));
-    memset(P, 0, sizeof(P));
 
-    S[KC_STATE_X] = 1.0f; // x
-    S[KC_STATE_Y] = 1.0f; // y
-    S[KC_STATE_Z] = 1.0f; // z
+    S[KC_STATE_X] = 0.0f; // x
+    S[KC_STATE_Y] = 0.0f; // y
+    S[KC_STATE_Z] = 0.0f; // z
 
     // Initialize the rotation matrix and quaternion
     float ax = initialAccel.x;
@@ -64,16 +63,16 @@ Kalman::Kalman(vec3f_t initialAccel) {
     _UpdateRotationMatrix();
 
     // Initialize the covariance matrix
-    P[KC_STATE_X][KC_STATE_X] = powf(initStdDevPos_xy, 2);
-    P[KC_STATE_Y][KC_STATE_Y] = powf(initStdDevPos_xy, 2);
-    P[KC_STATE_Z][KC_STATE_Z] = powf(initStdDevPos_z, 2);
-    P[KC_STATE_PX][KC_STATE_PX] = powf(initStdDevVel_xyz, 2);
-    P[KC_STATE_PY][KC_STATE_PY] = powf(initStdDevVel_xyz, 2);
-    P[KC_STATE_PZ][KC_STATE_PZ] = powf(initStdDevVel_xyz, 2);
-    P[KC_STATE_D0][KC_STATE_D0] = powf(initStdDevAtt_rpy, 2);
-    P[KC_STATE_D1][KC_STATE_D1] = powf(initStdDevAtt_rpy, 2);
-    P[KC_STATE_D2][KC_STATE_D2] = powf(initStdDevAtt_rpy, 2);
-    Pm = dspm::Mat((float *)P, KC_STATE_DIM, KC_STATE_DIM);
+    Pm = dspm::Mat(KC_STATE_DIM, KC_STATE_DIM);
+    Pm(KC_STATE_X, KC_STATE_X) = powf(initStdDevPos_xy, 2);
+    Pm(KC_STATE_Y, KC_STATE_Y) = powf(initStdDevPos_xy, 2);
+    Pm(KC_STATE_Z, KC_STATE_Z) = powf(initStdDevPos_z, 2);
+    Pm(KC_STATE_VX, KC_STATE_VX) = powf(initStdDevVel_xyz, 2);
+    Pm(KC_STATE_VY, KC_STATE_VY) = powf(initStdDevVel_xyz, 2);
+    Pm(KC_STATE_VZ, KC_STATE_VZ) = powf(initStdDevVel_xyz, 2);
+    Pm(KC_STATE_D0, KC_STATE_D0) = powf(initStdDevAtt_rpy, 2);
+    Pm(KC_STATE_D1, KC_STATE_D1) = powf(initStdDevAtt_rpy, 2);
+    Pm(KC_STATE_D2, KC_STATE_D2) = powf(initStdDevAtt_rpy, 2);
 }
 
 Kalman::~Kalman() {
@@ -88,57 +87,57 @@ void Kalman::Predict(imu_t* imuData, float dt, bool isFlying) {
     vec3f_t *accel = &imuData->accel;
 
     // position from body-frame velocity
-    Fm(KC_STATE_X, KC_STATE_PX) = R[0][0] * dt;
-    Fm(KC_STATE_Y, KC_STATE_PX) = R[1][0] * dt;
-    Fm(KC_STATE_Z, KC_STATE_PX) = R[2][0] * dt;
+    Fm(KC_STATE_X, KC_STATE_VX) = R[0][0] * dt;
+    Fm(KC_STATE_Y, KC_STATE_VX) = R[1][0] * dt;
+    Fm(KC_STATE_Z, KC_STATE_VX) = R[2][0] * dt;
 
-    Fm(KC_STATE_X, KC_STATE_PY) = R[0][1] * dt;
-    Fm(KC_STATE_Y, KC_STATE_PY) = R[1][1] * dt;
-    Fm(KC_STATE_Z, KC_STATE_PY) = R[2][1] * dt;
+    Fm(KC_STATE_X, KC_STATE_VY) = R[0][1] * dt;
+    Fm(KC_STATE_Y, KC_STATE_VY) = R[1][1] * dt;
+    Fm(KC_STATE_Z, KC_STATE_VY) = R[2][1] * dt;
 
-    Fm(KC_STATE_X, KC_STATE_PZ) = R[0][2] * dt;
-    Fm(KC_STATE_Y, KC_STATE_PZ) = R[1][2] * dt;
-    Fm(KC_STATE_Z, KC_STATE_PZ) = R[2][2] * dt;
+    Fm(KC_STATE_X, KC_STATE_VZ) = R[0][2] * dt;
+    Fm(KC_STATE_Y, KC_STATE_VZ) = R[1][2] * dt;
+    Fm(KC_STATE_Z, KC_STATE_VZ) = R[2][2] * dt;
 
     // position from attitude error
-    Fm(KC_STATE_X, KC_STATE_D0) = (S[KC_STATE_PY] * R[0][2] - S[KC_STATE_PZ] * R[0][1]) * dt;
-    Fm(KC_STATE_Y, KC_STATE_D0) = (S[KC_STATE_PY] * R[1][2] - S[KC_STATE_PZ] * R[1][1]) * dt;
-    Fm(KC_STATE_Z, KC_STATE_D0) = (S[KC_STATE_PY] * R[2][2] - S[KC_STATE_PZ] * R[2][1]) * dt;
+    Fm(KC_STATE_X, KC_STATE_D0) = (S[KC_STATE_VY] * R[0][2] - S[KC_STATE_VZ] * R[0][1]) * dt;
+    Fm(KC_STATE_Y, KC_STATE_D0) = (S[KC_STATE_VY] * R[1][2] - S[KC_STATE_VZ] * R[1][1]) * dt;
+    Fm(KC_STATE_Z, KC_STATE_D0) = (S[KC_STATE_VY] * R[2][2] - S[KC_STATE_VZ] * R[2][1]) * dt;
 
-    Fm(KC_STATE_X, KC_STATE_D1) = (-S[KC_STATE_PX] * R[0][2] + S[KC_STATE_PZ] * R[0][0]) * dt;
-    Fm(KC_STATE_Y, KC_STATE_D1) = (-S[KC_STATE_PX] * R[1][2] + S[KC_STATE_PZ] * R[1][0]) * dt;
-    Fm(KC_STATE_Z, KC_STATE_D1) = (-S[KC_STATE_PX] * R[2][2] + S[KC_STATE_PZ] * R[2][0]) * dt;
+    Fm(KC_STATE_X, KC_STATE_D1) = (-S[KC_STATE_VX] * R[0][2] + S[KC_STATE_VZ] * R[0][0]) * dt;
+    Fm(KC_STATE_Y, KC_STATE_D1) = (-S[KC_STATE_VX] * R[1][2] + S[KC_STATE_VZ] * R[1][0]) * dt;
+    Fm(KC_STATE_Z, KC_STATE_D1) = (-S[KC_STATE_VX] * R[2][2] + S[KC_STATE_VZ] * R[2][0]) * dt;
 
-    Fm(KC_STATE_X, KC_STATE_D2) = (S[KC_STATE_PX] * R[0][1] - S[KC_STATE_PY] * R[0][0]) * dt;
-    Fm(KC_STATE_Y, KC_STATE_D2) = (S[KC_STATE_PX] * R[1][1] - S[KC_STATE_PY] * R[1][0]) * dt;
-    Fm(KC_STATE_Z, KC_STATE_D2) = (S[KC_STATE_PX] * R[2][1] - S[KC_STATE_PY] * R[2][0]) * dt;
+    Fm(KC_STATE_X, KC_STATE_D2) = (S[KC_STATE_VX] * R[0][1] - S[KC_STATE_VY] * R[0][0]) * dt;
+    Fm(KC_STATE_Y, KC_STATE_D2) = (S[KC_STATE_VX] * R[1][1] - S[KC_STATE_VY] * R[1][0]) * dt;
+    Fm(KC_STATE_Z, KC_STATE_D2) = (S[KC_STATE_VX] * R[2][1] - S[KC_STATE_VY] * R[2][0]) * dt;
 
     // body-frame velocity change from attitude change (rotation)
-    Fm(KC_STATE_PX, KC_STATE_PX) = 1.0;
-    Fm(KC_STATE_PY, KC_STATE_PX) = -gyro->z * dt;
-    Fm(KC_STATE_PZ, KC_STATE_PX) = gyro->y * dt;
+    Fm(KC_STATE_VX, KC_STATE_VX) = 1.0;
+    Fm(KC_STATE_VY, KC_STATE_VX) = -gyro->z * dt;
+    Fm(KC_STATE_VZ, KC_STATE_VX) = gyro->y * dt;
 
-    Fm(KC_STATE_PX, KC_STATE_PY) = gyro->z * dt;
-    Fm(KC_STATE_PY, KC_STATE_PY) = 1.0;
-    Fm(KC_STATE_PZ, KC_STATE_PY) = -gyro->x * dt;
+    Fm(KC_STATE_VX, KC_STATE_VY) = gyro->z * dt;
+    Fm(KC_STATE_VY, KC_STATE_VY) = 1.0;
+    Fm(KC_STATE_VZ, KC_STATE_VY) = -gyro->x * dt;
 
-    Fm(KC_STATE_PX, KC_STATE_PZ) = -gyro->y * dt;
-    Fm(KC_STATE_PY, KC_STATE_PZ) = gyro->x * dt;
-    Fm(KC_STATE_PZ, KC_STATE_PZ) = 1.0;
+    Fm(KC_STATE_VX, KC_STATE_VZ) = -gyro->y * dt;
+    Fm(KC_STATE_VY, KC_STATE_VZ) = gyro->x * dt;
+    Fm(KC_STATE_VZ, KC_STATE_VZ) = 1.0;
 
     // body-frame velocity from attitude error
-    Fm(KC_STATE_PX, KC_STATE_D0) = 0.0;
+    Fm(KC_STATE_VX, KC_STATE_D0) = 0.0;
     // delta_V_PY = -g_PZ * sin(delta_roll) * dt = -g_PZ * delta_roll * dt
-    Fm(KC_STATE_PY, KC_STATE_D0) = -GRAVITY_EARTH * R[2][2] * dt;
-    Fm(KC_STATE_PZ, KC_STATE_D0) = GRAVITY_EARTH * R[2][1] * dt;
+    Fm(KC_STATE_VY, KC_STATE_D0) = -GRAVITY_EARTH * R[2][2] * dt;
+    Fm(KC_STATE_VZ, KC_STATE_D0) = GRAVITY_EARTH * R[2][1] * dt;
 
-    Fm(KC_STATE_PX, KC_STATE_D1) = GRAVITY_EARTH * R[2][2] * dt;
-    Fm(KC_STATE_PY, KC_STATE_D1) = 0.0;
-    Fm(KC_STATE_PZ, KC_STATE_D1) = -GRAVITY_EARTH * R[2][0] * dt;
+    Fm(KC_STATE_VX, KC_STATE_D1) = GRAVITY_EARTH * R[2][2] * dt;
+    Fm(KC_STATE_VY, KC_STATE_D1) = 0.0;
+    Fm(KC_STATE_VZ, KC_STATE_D1) = -GRAVITY_EARTH * R[2][0] * dt;
 
-    Fm(KC_STATE_PX, KC_STATE_D2) = -GRAVITY_EARTH * R[2][1] * dt;
-    Fm(KC_STATE_PY, KC_STATE_D2) = GRAVITY_EARTH * R[2][0] * dt;
-    Fm(KC_STATE_PZ, KC_STATE_D2) = 0.0;
+    Fm(KC_STATE_VX, KC_STATE_D2) = -GRAVITY_EARTH * R[2][1] * dt;
+    Fm(KC_STATE_VY, KC_STATE_D2) = GRAVITY_EARTH * R[2][0] * dt;
+    Fm(KC_STATE_VZ, KC_STATE_D2) = 0.0;
 
     // attitude error from attitude error
     /**
@@ -175,10 +174,8 @@ void Kalman::Predict(imu_t* imuData, float dt, bool isFlying) {
     // ====== COVARIANCE UPDATE: P_n+1,n = F * P_n,n * F^T + Q ======
     // F * P_n,n
     dspm::Mat tmpNN1m = Fm * Pm;
-    // F^T
-    dspm::Mat tmpNN2m = Fm.t();
     // F * P_n,n * F^T
-    Pm = tmpNN1m * tmpNN2m;
+    Pm = tmpNN1m * Fm.t();
 
     // ====== PREDICTION STEP: S_n+1,n = F * S_n,n + G * u_n + w_n ======
     // The control input u_n depends on whether we're on the ground, or in flight.
@@ -192,9 +189,9 @@ void Kalman::Predict(imu_t* imuData, float dt, bool isFlying) {
         // Use accelerometer and not commanded thrust, as this has proper physical units
 
         // position updates in the body frame (will be rotated to inertial frame)
-        dx = S[KC_STATE_PX] * dt;
-        dy = S[KC_STATE_PY] * dt;
-        dz = S[KC_STATE_PZ] * dt + accel->z * dt2_2; // thrust can only be produced in the body's Z direction
+        dx = S[KC_STATE_VX] * dt;
+        dy = S[KC_STATE_VY] * dt;
+        dz = S[KC_STATE_VZ] * dt + accel->z * dt2_2; // thrust can only be produced in the body's Z direction
 
         // position update
         S[KC_STATE_X] += R[0][0] * dx + R[0][1] * dy + R[0][2] * dz;
@@ -202,20 +199,20 @@ void Kalman::Predict(imu_t* imuData, float dt, bool isFlying) {
         S[KC_STATE_Z] += R[2][0] * dx + R[2][1] * dy + R[2][2] * dz - GRAVITY_EARTH * dt2_2;
 
         // keep previous time step's state for the update
-        tmpSPX = S[KC_STATE_PX];
-        tmpSPY = S[KC_STATE_PY];
-        tmpSPZ = S[KC_STATE_PZ];
+        tmpSPX = S[KC_STATE_VX];
+        tmpSPY = S[KC_STATE_VY];
+        tmpSPZ = S[KC_STATE_VZ];
 
         // body-velocity update: accelerometers - gyros cross velocity - gravity in body frame
-        S[KC_STATE_PX] += dt * (gyro->z * tmpSPY - gyro->y * tmpSPZ - GRAVITY_EARTH * R[2][0]);
-        S[KC_STATE_PY] += dt * (-gyro->z * tmpSPX + gyro->x * tmpSPZ - GRAVITY_EARTH * R[2][1]);
-        S[KC_STATE_PZ] += dt * (accel->z + gyro->y * tmpSPX - gyro->x * tmpSPY - GRAVITY_EARTH * R[2][2]);
+        S[KC_STATE_VX] += dt * (gyro->z * tmpSPY - gyro->y * tmpSPZ - GRAVITY_EARTH * R[2][0]);
+        S[KC_STATE_VY] += dt * (-gyro->z * tmpSPX + gyro->x * tmpSPZ - GRAVITY_EARTH * R[2][1]);
+        S[KC_STATE_VZ] += dt * (accel->z + gyro->y * tmpSPX - gyro->x * tmpSPY - GRAVITY_EARTH * R[2][2]);
     } else {
         // Acceleration can be in any direction, as measured by the accelerometer. This occurs, eg. in freefall or while being carried.
         // position updates in the body frame (will be rotated to inertial frame)
-        dx = S[KC_STATE_PX] * dt + accel->x * dt2_2;
-        dy = S[KC_STATE_PY] * dt + accel->y * dt2_2;
-        dz = S[KC_STATE_PZ] * dt + accel->z * dt2_2; // thrust can only be produced in the body's Z direction
+        dx = S[KC_STATE_VX] * dt + accel->x * dt2_2;
+        dy = S[KC_STATE_VY] * dt + accel->y * dt2_2;
+        dz = S[KC_STATE_VZ] * dt + accel->z * dt2_2; // thrust can only be produced in the body's Z direction
 
         // position update
         S[KC_STATE_X] += R[0][0] * dx + R[0][1] * dy + R[0][2] * dz;
@@ -223,14 +220,14 @@ void Kalman::Predict(imu_t* imuData, float dt, bool isFlying) {
         S[KC_STATE_Z] += R[2][0] * dx + R[2][1] * dy + R[2][2] * dz - GRAVITY_EARTH * dt2_2;
 
         // keep previous time step's state for the update
-        tmpSPX = S[KC_STATE_PX];
-        tmpSPY = S[KC_STATE_PY];
-        tmpSPZ = S[KC_STATE_PZ];
+        tmpSPX = S[KC_STATE_VX];
+        tmpSPY = S[KC_STATE_VY];
+        tmpSPZ = S[KC_STATE_VZ];
 
         // body-velocity update: accelerometers - gyros cross velocity - gravity in body frame
-        S[KC_STATE_PX] += dt * (accel->x + gyro->z * tmpSPY - gyro->y * tmpSPZ - GRAVITY_EARTH * R[2][0]);
-        S[KC_STATE_PY] += dt * (accel->y - gyro->z * tmpSPX + gyro->x * tmpSPZ - GRAVITY_EARTH * R[2][1]);
-        S[KC_STATE_PZ] += dt * (accel->z + gyro->y * tmpSPX - gyro->x * tmpSPY - GRAVITY_EARTH * R[2][2]);
+        S[KC_STATE_VX] += dt * (accel->x + gyro->z * tmpSPY - gyro->y * tmpSPZ - GRAVITY_EARTH * R[2][0]);
+        S[KC_STATE_VY] += dt * (accel->y - gyro->z * tmpSPX + gyro->x * tmpSPZ - GRAVITY_EARTH * R[2][1]);
+        S[KC_STATE_VZ] += dt * (accel->z + gyro->y * tmpSPX - gyro->x * tmpSPY - GRAVITY_EARTH * R[2][2]);
     }
 
     // attitude update (rotate by gyroscope), we do this in quaternions
@@ -241,30 +238,30 @@ void Kalman::Predict(imu_t* imuData, float dt, bool isFlying) {
 void Kalman::AddProcessNoise(float dt) {
     if (dt > 0) {
         // Add process noise on position
-        P[KC_STATE_X][KC_STATE_X] += powf(procNoiseAcc_xy * dt * dt, 2) 
+        Pm(KC_STATE_X, KC_STATE_X) += powf(procNoiseAcc_xy * dt * dt, 2) 
                                              + powf(procNoiseVel * dt, 2) 
                                              + powf(procNoisePos, 2);
-        P[KC_STATE_Y][KC_STATE_Y] += powf(procNoiseAcc_xy * dt * dt, 2) 
+        Pm(KC_STATE_Y, KC_STATE_Y) += powf(procNoiseAcc_xy * dt * dt, 2) 
                                              + powf(procNoiseVel * dt, 2) 
                                              + powf(procNoisePos, 2);
-        P[KC_STATE_Z][KC_STATE_Z] += powf(procNoiseAcc_z * dt * dt, 2) 
+        Pm(KC_STATE_Z, KC_STATE_Z) += powf(procNoiseAcc_z * dt * dt, 2) 
                                              + powf(procNoiseVel * dt, 2) 
                                              + powf(procNoisePos, 2);
 
         // Add process noise on velocity
-        P[KC_STATE_PX][KC_STATE_PX] += powf(procNoiseAcc_xy * dt, 2) 
+        Pm(KC_STATE_VX, KC_STATE_VX) += powf(procNoiseAcc_xy * dt, 2) 
                                                + powf(procNoiseVel, 2);
-        P[KC_STATE_PY][KC_STATE_PY] += powf(procNoiseAcc_xy * dt, 2) 
+        Pm(KC_STATE_VY, KC_STATE_VY) += powf(procNoiseAcc_xy * dt, 2) 
                                                + powf(procNoiseVel, 2);
-        P[KC_STATE_PZ][KC_STATE_PZ] += powf(procNoiseAcc_z * dt, 2) 
+        Pm(KC_STATE_VZ, KC_STATE_VZ) += powf(procNoiseAcc_z * dt, 2) 
                                                + powf(procNoiseVel, 2);
 
         // Add process noise on attitude
-        P[KC_STATE_D0][KC_STATE_D0] += powf(measNoiseGyr_rpy * dt, 2) 
+        Pm(KC_STATE_D0, KC_STATE_D0) += powf(measNoiseGyr_rpy * dt, 2) 
                                                + powf(procNoiseAtt, 2);
-        P[KC_STATE_D1][KC_STATE_D1] += powf(measNoiseGyr_rpy * dt, 2) 
+        Pm(KC_STATE_D1, KC_STATE_D1) += powf(measNoiseGyr_rpy * dt, 2) 
                                                + powf(procNoiseAtt, 2);
-        P[KC_STATE_D2][KC_STATE_D2] += powf(measNoiseGyr_rpy * dt, 2) 
+        Pm(KC_STATE_D2, KC_STATE_D2) += powf(measNoiseGyr_rpy * dt, 2) 
                                                + powf(procNoiseAtt, 2);
     }
 
@@ -315,9 +312,7 @@ void Kalman::Finalize() {
         // arm_mat_trans_f32(&Fm, &tmpNN1m); // F'
         // arm_mat_mult_f32(&Fm, &Pm, &tmpNN2m); // FP
         // arm_mat_mult_f32(&tmpNN2m, &tmpNN1m, &Pm); // FPF'
-        dspm::Mat tmpNN1m = Fm.t();
-        dspm::Mat tmpNN2m = Fm * Pm;
-        Pm = tmpNN2m * tmpNN1m;
+        Pm = Fm * Pm * Fm.t();
     }
 
     _UpdateRotationMatrix();
@@ -388,13 +383,13 @@ void Kalman::_UpdateRotationMatrix() {
 void Kalman::_CapCovariance() {
     for (int i = 0; i < KC_STATE_DIM; i++) {
         for (int j = i; j < KC_STATE_DIM; j++) {
-            float p = 0.5f * P[i][j] + 0.5f * P[j][i];
+            float p = 0.5f * Pm(i, j) + 0.5f * Pm(j, i);
             if (isnan(p) || p > MAX_COVARIANCE)
-                P[i][j] = P[j][i] = MAX_COVARIANCE;
+                Pm(i, j) = Pm(j, i) = MAX_COVARIANCE;
             else if (i == j && p < MIN_COVARIANCE)
-                P[i][j] = P[j][i] = MIN_COVARIANCE;
+                Pm(i, j) = Pm(j, i) = MIN_COVARIANCE;
             else
-                P[i][j] = P[j][i] = p;
+                Pm(i, j) = Pm(j, i) = p;
         }
     }
 }
@@ -409,9 +404,9 @@ void Kalman::ExternalizeState(state_t *state, const vec3f_t *accel) {
 
     // velocity is in body frame and needs to be rotated to world frame
     state->velocity = (velocity_t) {
-        R[0][0] * S[KC_STATE_PX] + R[0][1] * S[KC_STATE_PY] + R[0][2] * S[KC_STATE_PZ],
-        R[1][0] * S[KC_STATE_PX] + R[1][1] * S[KC_STATE_PY] + R[1][2] * S[KC_STATE_PZ],
-        R[2][0] * S[KC_STATE_PX] + R[2][1] * S[KC_STATE_PY] + R[2][2] * S[KC_STATE_PZ],
+        R[0][0] * S[KC_STATE_VX] + R[0][1] * S[KC_STATE_VY] + R[0][2] * S[KC_STATE_VZ],
+        R[1][0] * S[KC_STATE_VX] + R[1][1] * S[KC_STATE_VY] + R[1][2] * S[KC_STATE_VZ],
+        R[2][0] * S[KC_STATE_VX] + R[2][1] * S[KC_STATE_VY] + R[2][2] * S[KC_STATE_VZ],
     };
 
     // Accelerometer measurements are in the body frame and need to be rotated to world frame.
@@ -430,7 +425,7 @@ void Kalman::ExternalizeState(state_t *state, const vec3f_t *accel) {
     );
     float pitch = asinf(-2 * (q[1] * q[3] - q[0] * q[2]));
     float roll = atan2f(
-        2 * (q[2] * q[3]+q[0] * q[1]),
+        2 * (q[2] * q[3] + q[0] * q[1]),
         q[0] * q[0] - q[1] * q[1] - q[2] * q[2] + q[3] * q[3]
     );
 
@@ -448,7 +443,7 @@ void Kalman::ExternalizeState(state_t *state, const vec3f_t *accel) {
 
 void Kalman::ScalarUpdate(dspm::Mat *Hm, float error, float stdMeasNoise) {
     dspm::Mat HTm = Hm->t();
-    dspm::Mat PHTm = Pm * HTm;
+    dspm::Mat PHTm = this->Pm * HTm;
 
     float R = stdMeasNoise * stdMeasNoise;
     float HPHR = R;
@@ -458,26 +453,35 @@ void Kalman::ScalarUpdate(dspm::Mat *Hm, float error, float stdMeasNoise) {
 
     dspm::Mat K = PHTm / HPHR;
     for (int i = 0; i < KC_STATE_DIM; i++) {
-        S[i] += K(i, 0) * error;
+        this->S[i] += K(i, 0) * error;
     }
 
     // Pm = (I - K * H) * Pm * (I - K * H)^T + K * R * K^T
-    dspm::Mat I_KH = dspm::Mat::eye(KC_STATE_DIM) - K * (*Hm);;
+    dspm::Mat I_KH = dspm::Mat::eye(KC_STATE_DIM) - K * (*Hm);
     Pm = I_KH * Pm * I_KH.t() + (K * R) * K.t();
 
     _CapCovariance();
+    // for (int i = 0; i < KC_STATE_DIM; i++) {
+    //     for (int j = i; j < KC_STATE_DIM; j++) {
+    //         float p = 0.5f * Pm(i, j) + 0.5f * Pm(j, i) + K(i, 0) * K(j, 0) * R;
+    //         if (isnan(p) || p > MAX_COVARIANCE)
+    //             Pm(i, j) = Pm(j, i) = MAX_COVARIANCE;
+    //         else if (i == j && p < MIN_COVARIANCE)
+    //             Pm(i, j) = Pm(j, i) = MIN_COVARIANCE;
+    //         else
+    //             Pm(i, j) = Pm(j, i) = p;
+    //     }
+    // }
 }
 
 bool Kalman::CheckBounds() {
-    return true;
-    // comment
     float maxPosition = 50;
     float maxVelocity = 5;
     for (int i = 0; i < 3; i++) {
-        if (fabsf(S[KC_STATE_X + i]) > maxPosition) {
+        if (isnan(S[KC_STATE_X + i]) || fabsf(S[KC_STATE_X + i]) > maxPosition) {
             return false;
         }
-        if (fabsf(S[KC_STATE_PX + i]) > maxVelocity) {
+        if (isnan(S[KC_STATE_VX + i]) || fabsf(S[KC_STATE_VX + i]) > maxVelocity) {
             return false;
         }
     }
@@ -559,7 +563,7 @@ void Kalman::RobustTdoaUpdate(estimatorPacket_t *packet) {
 
         // ------------------- Initialization -----------------------//
         float P_iter[KC_STATE_DIM][KC_STATE_DIM];
-        memcpy(P_iter, this->P, sizeof(P_iter));                 // init P_iter as P_prior
+        memcpy(P_iter, this->Pm.data, sizeof(P_iter));                 // init P_iter as P_prior
 
         float R_iter = packet->tdoa.stdDev * packet->tdoa.stdDev;                    // measurement covariance
         float X_state[KC_STATE_DIM] = {0.0};

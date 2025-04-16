@@ -59,21 +59,21 @@
 // Indexes to access the quad's state, stored as a column vector
 typedef enum {
     KC_STATE_X,  KC_STATE_Y,  KC_STATE_Z,
-	KC_STATE_PX, KC_STATE_PY, KC_STATE_PZ,
+	KC_STATE_VX, KC_STATE_VY, KC_STATE_VZ,
 	KC_STATE_D0, KC_STATE_D1, KC_STATE_D2,
     KC_STATE_DIM
 } kalmanCoreStateIdx_t;
 
-#define GRAVITY_EARTH   (9.80665f)
+#define GRAVITY_EARTH   (9.81f)
 
 class Kalman {
-private:
+public:
     /**
      * Quadrocopter State
      *
      * The internally-estimated state is:
      * - X, Y, Z: the quad's position in the global frame
-     * - PX, PY, PZ: the quad's velocity in its body frame
+     * - VX, VY, VZ: the quad's velocity in its body frame
      * - D0, D1, D2: attitude error
      *
      * For more information, refer to the paper
@@ -82,13 +82,12 @@ private:
 
     float q[4];           // The quad's attitude as a quaternion (w,x,y,z)
     float R[3][3];        // The quad's attitude as a rotation matrix (used by the prediction, updated by the finalization)
-    float P[KC_STATE_DIM][KC_STATE_DIM]; // The covariance matrix, estimate uncertainty
     dspm::Mat Pm;         // The covariance matrix, estimate uncertainty
 
     void _CapCovariance();
     void _UpdateRotationMatrix();
     void _DeltaGyro2Quaternion(float d0, float d1, float d2);
-public:
+// public:
     Kalman(vec3f_t initialAccel = {0, 0, 1});
     ~Kalman();
 
